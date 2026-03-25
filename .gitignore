@@ -1,0 +1,34 @@
+# Local editor files
+/.vsconfig
+/.vs/
+/.vscode/*
+/*.sln
+/*.code-workspace
+/.ignore
+
+# Unreal generated folders at the plugin root
+/Binaries/
+/Intermediate/
+/DerivedDataCache/
+/Saved/
+/enc_temp_folder/
+
+# Unreal generated folders inside examples or nested plugins
+**/Binaries/
+**/Intermediate/
+**/DerivedDataCache/
+**/Saved/
+**/enc_temp_folder/
+**/__ExternalActors__/
+**/__ExternalObjects__/
+
+# Common local build artifacts
+/Artifacts/
+/PackagedBuilds/
+
+# Python caches
+**/__pycache__/
+*.py[cod]
+
+# Node dependencies
+**/node_modules/

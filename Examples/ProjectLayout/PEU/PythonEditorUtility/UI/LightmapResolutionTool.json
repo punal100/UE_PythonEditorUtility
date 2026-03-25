@@ -1,0 +1,96 @@
+{
+  "TabLabel": "Lightmap Resolution",
+  "Root": {
+    "SVerticalBox": {
+      "Slots": [
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [10, 10, 10, 10],
+            "Content": {
+              "STextBlock": {
+                "Text": "Inspect and change static mesh lightmap resolution. Actions operate on rows discovered from selected map assets in the Content Browser, or from the current open level when no map assets are selected."
+              }
+            }
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SUniformGridPanel": {
+            "SlotPadding": [6, 6, 6, 6],
+            "Slots": [
+              {
+                "Column_Row": [0, 0],
+                "SButton": {
+                  "Text": "Refresh",
+                  "OnClick": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.refresh_status()"
+                }
+              },
+              {
+                "Column_Row": [1, 0],
+                "SButton": {
+                  "Text": "Override 64",
+                  "OnClick": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.apply_instance_override_64()"
+                }
+              },
+              {
+                "Column_Row": [2, 0],
+                "SButton": {
+                  "Text": "Override 128",
+                  "OnClick": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.apply_instance_override_128()"
+                }
+              },
+              {
+                "Column_Row": [3, 0],
+                "SButton": {
+                  "Text": "Clear Overrides",
+                  "OnClick": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.clear_instance_overrides()"
+                }
+              },
+              {
+                "Column_Row": [0, 1],
+                "SButton": {
+                  "Text": "Asset 64",
+                  "OnClick": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.apply_asset_resolution_64()"
+                }
+              },
+              {
+                "Column_Row": [1, 1],
+                "SButton": {
+                  "Text": "Asset 128",
+                  "OnClick": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.apply_asset_resolution_128()"
+                }
+              },
+              {
+                "Column_Row": [2, 1],
+                "SButton": {
+                  "Text": "Open First Actor",
+                  "OnClick": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.open_first_actor()"
+                }
+              },
+              {
+                "Column_Row": [3, 1],
+                "SButton": {
+                  "Text": "Sync First Asset",
+                  "OnClick": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.sync_first_asset()"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "FillHeight": 1.0,
+          "SBorder": {
+            "Padding": [8, 8, 8, 8],
+            "Content": {
+              "SMultiLineEditableTextBox": {
+                "IsReadOnly": true,
+                "Text": "Loading..."
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

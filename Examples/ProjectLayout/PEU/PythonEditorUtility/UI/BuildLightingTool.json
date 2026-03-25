@@ -1,0 +1,117 @@
+{
+  "TabLabel": "Build Lighting",
+  "Root": {
+    "SVerticalBox": {
+      "Slots": [
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [10, 10, 10, 10],
+            "Content": {
+              "STextBlock": {
+                "Text": "Native Unreal Slate build-lighting tool via PythonEditorUtility. Select map assets in the Content Browser, or keep a level open, then use the actions below."
+              }
+            }
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SUniformGridPanel": {
+            "SlotPadding": [6, 6, 6, 6],
+            "Slots": [
+              {
+                "Column_Row": [0, 0],
+                "SButton": {
+                  "Text": "Refresh Status",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.refresh_status()"
+                }
+              },
+              {
+                "Column_Row": [1, 0],
+                "SButton": {
+                  "Text": "Run Precheck",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.run_precheck()"
+                }
+              },
+              {
+                "Column_Row": [2, 0],
+                "SButton": {
+                  "Text": "Build Lighting",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.build_lighting()"
+                }
+              },
+              {
+                "Column_Row": [0, 1],
+                "SButton": {
+                  "Text": "Audit Static Meshes",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.audit_static_meshes()"
+                }
+              },
+              {
+                "Column_Row": [1, 1],
+                "SButton": {
+                  "Text": "Lightmap Resolution",
+                  "OnClick": "PEU:OpenLightmapResolution"
+                }
+              },
+              {
+                "Column_Row": [2, 1],
+                "SButton": {
+                  "Text": "Open Options File",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.open_options_file()"
+                }
+              },
+              {
+                "Column_Row": [0, 2],
+                "SButton": {
+                  "Text": "Apply Density Settings",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.apply_density_settings()"
+                }
+              },
+              {
+                "Column_Row": [1, 2],
+                "SButton": {
+                  "Text": "Lightmap Density View",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.activate_lightmap_density_view()"
+                }
+              },
+              {
+                "Column_Row": [2, 2],
+                "SButton": {
+                  "Text": "Lighting Only View",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.activate_lighting_only_view()"
+                }
+              },
+              {
+                "Column_Row": [0, 3],
+                "SButton": {
+                  "Text": "Lit View",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.activate_lit_view()"
+                }
+              },
+              {
+                "Column_Row": [1, 3],
+                "SButton": {
+                  "Text": "Native Lighting Actions",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.show_native_lighting_actions()"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "FillHeight": 1.0,
+          "SBorder": {
+            "Padding": [8, 8, 8, 8],
+            "Content": {
+              "SMultiLineEditableTextBox": {
+                "IsReadOnly": true,
+                "Text": "Loading..."
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
