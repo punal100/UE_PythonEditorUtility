@@ -1,0 +1,101 @@
+{
+  "TabLabel": "Starter Overview",
+  "StatusFile": "StarterOverviewStatus.txt",
+  "StateFile": "StarterOverviewState.json",
+  "Tooltip": "Open the neutral starter overview.",
+  "InitPyCmd": "import PythonEditorUtility.StarterOverviewTool as tool; tool.bootstrap(%JsonPath)",
+  "Root": {
+    "SScrollBox": {
+      "Slots": [
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [10, 10, 10, 10],
+            "Content": {
+              "SVerticalBox": {
+                "Slots": [
+                  {
+                    "AutoHeight": true,
+                    "STextBlock": {
+                      "Text": "Standalone starter overview",
+                      "StateKey": "headline"
+                    }
+                  },
+                  {
+                    "AutoHeight": true,
+                    "STextBlock": {
+                      "Text": "This starter demonstrates dynamic discovery, InitPyCmd, state binding, and project-owned adapter calls.",
+                      "StateKey": "summary_text"
+                    }
+                  },
+                  {
+                    "AutoHeight": true,
+                    "SProgressBar": {
+                      "StateKey": "progress_percent",
+                      "Percent": 0.0
+                    }
+                  },
+                  {
+                    "AutoHeight": true,
+                    "STextBlock": {
+                      "Text": "Starter tools discovered: 0",
+                      "StateKey": "tool_count_text"
+                    }
+                  },
+                  {
+                    "AutoHeight": true,
+                    "STextBlock": {
+                      "Text": "Do not modify plugin source. Replace the project-owned UI, controllers, and scripts in your own project.",
+                      "StateKey": "contract_text"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SUniformGridPanel": {
+            "SlotPadding": [6, 6, 6, 6],
+            "Slots": [
+              {
+                "Column_Row": [0, 0],
+                "SButton": {
+                  "Text": "Refresh Overview",
+                  "OnClick": "import PythonEditorUtility.StarterOverviewTool as tool; tool.refresh_status()"
+                }
+              },
+              {
+                "Column_Row": [1, 0],
+                "SButton": {
+                  "Text": "Open Starter Actions",
+                  "OnClick": "PEU:OpenTool:StarterActionsTool"
+                }
+              },
+              {
+                "Column_Row": [2, 0],
+                "SButton": {
+                  "Text": "Reset Example",
+                  "OnClick": "import PythonEditorUtility.StarterOverviewTool as tool; tool.reset_example()"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [10, 10, 10, 10],
+            "Content": {
+              "SMultiLineEditableTextBox": {
+                "StateKey": "detail_text",
+                "Text": ""
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

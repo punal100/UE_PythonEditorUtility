@@ -1,0 +1,191 @@
+{
+  "TabLabel": "Starter Actions",
+  "StatusFile": "StarterActionsStatus.txt",
+  "StateFile": "StarterActionsState.json",
+  "Tooltip": "Open the neutral starter actions tool.",
+  "InitPyCmd": "import PythonEditorUtility.StarterActionsTool as tool; tool.bootstrap(%JsonPath)",
+  "Root": {
+    "SScrollBox": {
+      "Slots": [
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [10, 10, 10, 10],
+            "Content": {
+              "STextBlock": {
+                "Text": "Use project-owned widgets and scripts to preview or apply an integration workflow without editing plugin source. This tab demonstrates %Text%, %Checked%, %Value%, and %Widget:*% placeholders.",
+                "StateKey": "summary_text"
+              }
+            }
+          }
+        },
+        {
+          "AutoHeight": true,
+          "Padding": [0, 0, 0, 6],
+          "SHorizontalBox": {
+            "Slots": [
+              {
+                "AutoWidth": true,
+                "Padding": [0, 0, 8, 0],
+                "STextBlock": {
+                  "Text": "Workspace Root"
+                }
+              },
+              {
+                "FillWidth": 1.0,
+                "Padding": [0, 0, 6, 0],
+                "SEditableTextBox": {
+                  "Aka": "WorkspaceRoot",
+                  "StateKey": "workspace_root",
+                  "Text": "",
+                  "HintText": "Optional project-owned workspace folder",
+                  "OnTextCommitted": "import PythonEditorUtility.StarterActionsTool as tool; tool.set_workspace_root(%Text%)"
+                }
+              },
+              {
+                "AutoWidth": true,
+                "Padding": [0, 0, 6, 0],
+                "SButton": {
+                  "Text": "Browse",
+                  "OnClick": "PEU:BrowseFolder:WorkspaceRoot"
+                }
+              },
+              {
+                "AutoWidth": true,
+                "SButton": {
+                  "Text": "Use Project Dir",
+                  "OnClick": "import PythonEditorUtility.StarterActionsTool as tool; tool.use_project_root()"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SUniformGridPanel": {
+            "SlotPadding": [6, 6, 6, 6],
+            "Slots": [
+              {
+                "Column_Row": [0, 0],
+                "STextBlock": {
+                  "Text": "Workspace Name"
+                }
+              },
+              {
+                "Column_Row": [1, 0],
+                "SEditableTextBox": {
+                  "Aka": "WorkspaceName",
+                  "StateKey": "workspace_name",
+                  "Text": "SampleWorkspace",
+                  "OnTextCommitted": "import PythonEditorUtility.StarterActionsTool as tool; tool.set_workspace_name(%Text%)"
+                }
+              },
+              {
+                "Column_Row": [2, 0],
+                "STextBlock": {
+                  "Text": "Template"
+                }
+              },
+              {
+                "Column_Row": [3, 0],
+                "SComboBox": {
+                  "Aka": "TemplateType",
+                  "StateKey": "template_type",
+                  "Selected": "Operations",
+                  "Options": ["Operations", "Review", "Sandbox"],
+                  "OnSelectionChanged": "import PythonEditorUtility.StarterActionsTool as tool; tool.set_template_type(%Value%)"
+                }
+              },
+              {
+                "Column_Row": [0, 1],
+                "SCheckBox": {
+                  "Aka": "IncludeSamples",
+                  "StateKey": "include_samples",
+                  "Text": "Include sample content",
+                  "IsChecked": true,
+                  "OnCheckStateChanged": "import PythonEditorUtility.StarterActionsTool as tool; tool.set_include_samples(%Checked%)"
+                }
+              },
+              {
+                "Column_Row": [1, 1],
+                "SEditableTextBox": {
+                  "Aka": "NotesInput",
+                  "StateKey": "notes",
+                  "Text": "Replace this text with project-specific notes.",
+                  "OnTextCommitted": "import PythonEditorUtility.StarterActionsTool as tool; tool.set_notes(%Text%)"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SUniformGridPanel": {
+            "SlotPadding": [6, 6, 6, 6],
+            "Slots": [
+              {
+                "Column_Row": [0, 0],
+                "SButton": {
+                  "Text": "Generate Preview",
+                  "OnClick": "import PythonEditorUtility.StarterActionsTool as tool; tool.generate_preview(%Widget:WorkspaceName%, %Widget:WorkspaceRoot%, %Widget:TemplateType%, %Widget:IncludeSamples%, %Widget:NotesInput%)"
+                }
+              },
+              {
+                "Column_Row": [1, 0],
+                "SButton": {
+                  "Text": "Apply Starter Plan",
+                  "OnClick": "import PythonEditorUtility.StarterActionsTool as tool; tool.apply_changes(%Widget:WorkspaceName%, %Widget:WorkspaceRoot%, %Widget:TemplateType%, %Widget:IncludeSamples%, %Widget:NotesInput%)"
+                }
+              },
+              {
+                "Column_Row": [2, 0],
+                "SButton": {
+                  "Text": "Open Overview",
+                  "OnClick": "PEU:OpenTool:StarterOverviewTool"
+                }
+              },
+              {
+                "Column_Row": [3, 0],
+                "SButton": {
+                  "Text": "Reset Form",
+                  "OnClick": "import PythonEditorUtility.StarterActionsTool as tool; tool.reset_form()"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SProgressBar": {
+            "StateKey": "progress_percent",
+            "Percent": 0.0
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [10, 10, 10, 10],
+            "Content": {
+              "SMultiLineEditableTextBox": {
+                "StateKey": "preview_text",
+                "Text": ""
+              }
+            }
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [10, 10, 10, 10],
+            "Content": {
+              "SMultiLineEditableTextBox": {
+                "StateKey": "result_text",
+                "Text": ""
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

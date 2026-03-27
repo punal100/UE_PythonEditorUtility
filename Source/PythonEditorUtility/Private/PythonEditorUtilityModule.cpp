@@ -1,15 +1,16 @@
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
-#include "Framework/Docking/TabManager.h"
-#include "Framework/Application/SlateApplication.h"
-#include "IPythonScriptPlugin.h"
-#include "Misc/FileHelper.h"
-#include "Misc/Paths.h"
-#include "WorkspaceMenuStructure.h"
-#include "WorkspaceMenuStructureModule.h"
 #include "DesktopPlatformModule.h"
 #include "IDesktopPlatform.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Framework/Docking/TabManager.h"
+#include "HAL/FileManager.h"
+#include "Interfaces/IPluginManager.h"
+#include "IPythonScriptPlugin.h"
+#include "Misc/ConfigCacheIni.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Styling/AppStyle.h"
@@ -21,7 +22,6 @@
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SMultiLineEditableTextBox.h"
 #include "Widgets/Layout/SBorder.h"
-#include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SSplitter.h"
 #include "Widgets/Layout/SUniformGridPanel.h"
@@ -31,215 +31,481 @@
 #include "Widgets/Views/SHeaderRow.h"
 #include "Widgets/Views/SListView.h"
 #include "Widgets/Views/STableRow.h"
+#include "WorkspaceMenuStructure.h"
+#include "WorkspaceMenuStructureModule.h"
 
 namespace PythonEditorUtility
 {
-    static const FName BuildLightingTabName(TEXT("PythonEditorUtility.BuildLighting"));
-    static const FName LightmapResolutionTabName(TEXT("PythonEditorUtility.LightmapResolution"));
-    static const FName StaticMeshPipelineTabName(TEXT("PythonEditorUtility.StaticMeshPipeline"));
-    static TMap<FName, TSharedPtr<SMultiLineEditableTextBox>> ToolOutputTextBoxes;
-    static bool bUpdatingLightmapSelection = false;
-    static bool bUpdatingStaticMeshPipelineSelection = false;
-
-    static const FName LevelColumnName(TEXT("Level"));
-    static const FName ActorColumnName(TEXT("Actor"));
-    static const FName ComponentColumnName(TEXT("Component"));
-    static const FName MeshColumnName(TEXT("Mesh"));
-    static const FName MobilityColumnName(TEXT("Mobility"));
-    static const FName EffectiveColumnName(TEXT("Effective"));
-    static const FName AssetColumnName(TEXT("Asset"));
-    static const FName OverrideColumnName(TEXT("Override"));
-    static const FName PipelineAssetColumnName(TEXT("Asset"));
-    static const FName PipelineActionColumnName(TEXT("Action"));
-    static const FName PipelineResultColumnName(TEXT("Result"));
-    static const FName PipelineOverlapColumnName(TEXT("Overlap"));
-    static const FName PipelineWrappingColumnName(TEXT("Wrapping"));
-    static const FName LightmapResizeSpacerColumnName(TEXT("LightmapResizeSpacer"));
-    static const FName PipelineResizeSpacerColumnName(TEXT("PipelineResizeSpacer"));
-
-    struct FLightmapResolutionRowData
+    struct FPythonEditorUtilityIntegrationSettings
     {
-        FString Key;
-        FString Level;
-        FString Actor;
-        FString Component;
-        FString Mesh;
-        FString Mobility;
-        FString Effective;
-        FString Asset;
-        FString Override;
+        FString PythonRoot = TEXT("PEU/PythonEditorUtility/Python");
+        FString UiRoot = TEXT("PEU/PythonEditorUtility/UI");
+        FString StateRoot = TEXT("PEU/PythonEditorUtility/State");
+        FString PythonPackage = TEXT("PythonEditorUtility");
     };
 
-    using FLightmapResolutionRowPtr = TSharedPtr<FLightmapResolutionRowData>;
+    struct FDiscoveredToolDefinition
+    {
+        FString ToolName;
+        FString TabLabel;
+        FString JsonPath;
+        FString StatusFileName;
+        FString StateFileName;
+        FString Tooltip;
+        FString InitPyCmd;
+        FName TabId;
+        FName MenuEntryName;
+    };
 
-    struct FStaticMeshPipelineRowData
+    using FStringComboBox = SComboBox<TSharedPtr<FString>>;
+
+    struct FEditableTextWidgetBinding
+    {
+        FString BindingKey;
+        FString StateKey;
+        FString OnTextCommittedCmd;
+        TWeakPtr<SEditableTextBox> Widget;
+    };
+
+    struct FCheckBoxWidgetBinding
+    {
+        FString BindingKey;
+        FString StateKey;
+        TWeakPtr<SCheckBox> Widget;
+    };
+
+    struct FComboBoxWidgetBinding
+    {
+        FString BindingKey;
+        FString StateKey;
+        TWeakPtr<FStringComboBox> Widget;
+        TSharedPtr<TArray<TSharedPtr<FString>>> Options;
+        TSharedPtr<FString> CurrentValue;
+    };
+
+    struct FTextBlockWidgetBinding
+    {
+        FString StateKey;
+        FString Format;
+        TWeakPtr<STextBlock> Widget;
+    };
+
+    struct FMultiLineTextWidgetBinding
+    {
+        FString StateKey;
+        TWeakPtr<SMultiLineEditableTextBox> Widget;
+    };
+
+    struct FProgressBarWidgetBinding
+    {
+        FString StateKey;
+        TWeakPtr<SProgressBar> Widget;
+    };
+
+    struct FStateTableColumnDefinition
+    {
+        FString Id;
+        FString Title;
+        FString Field;
+        float FillWidth = 1.0f;
+    };
+
+    struct FStateTableRowData
     {
         FString Key;
-        FString Asset;
-        FString Action;
+        TMap<FString, FString> Cells;
+    };
+
+    using FStateTableRowPtr = TSharedPtr<FStateTableRowData>;
+    using FStateTableListView = SListView<FStateTableRowPtr>;
+    using FStateTableColumnFieldMap = TMap<FName, FString>;
+
+    struct FStateTableWidgetBinding
+    {
+        FString RowsStateKey;
+        FString SelectedKeysStateKey;
+        FString OnSelectionChanged;
+        bool bAllowMultiSelect = false;
+        TArray<FStateTableColumnDefinition> Columns;
+        TArray<FStateTableRowPtr> RowItems;
+        TWeakPtr<FStateTableListView> Widget;
+    };
+
+    class SStateTableRow final : public SMultiColumnTableRow<FStateTableRowPtr>
+    {
+    public:
+        SLATE_BEGIN_ARGS(SStateTableRow) {}
+        SLATE_ARGUMENT(FStateTableRowPtr, RowItem)
+        SLATE_ARGUMENT(TSharedPtr<FStateTableColumnFieldMap>, ColumnToField)
+        SLATE_END_ARGS()
+
+        void Construct(const FArguments &InArgs, const TSharedRef<STableViewBase> &OwnerTableView)
+        {
+            RowItem = InArgs._RowItem;
+            ColumnToField = InArgs._ColumnToField;
+            SMultiColumnTableRow<FStateTableRowPtr>::Construct(
+                SMultiColumnTableRow<FStateTableRowPtr>::FArguments().Padding(2.0f),
+                OwnerTableView);
+        }
+
+        virtual TSharedRef<SWidget> GenerateWidgetForColumn(const FName &ColumnName) override
+        {
+            FString CellText;
+            if (RowItem.IsValid() && ColumnToField.IsValid())
+            {
+                if (const FString *FieldName = ColumnToField->Find(ColumnName))
+                {
+                    if (const FString *Value = RowItem->Cells.Find(*FieldName))
+                    {
+                        CellText = *Value;
+                    }
+                }
+            }
+
+            return SNew(STextBlock)
+                .Text(FText::FromString(CellText))
+                .AutoWrapText(false);
+        }
+
+    private:
+        FStateTableRowPtr RowItem;
+        TSharedPtr<FStateTableColumnFieldMap> ColumnToField;
+    };
+
+    static TArray<FDiscoveredToolDefinition> DiscoveredTools;
+    static TMap<FName, FDiscoveredToolDefinition> ToolsByTabId;
+    static TMap<FName, TMap<FString, FString>> ToolStringBindings;
+    static TMap<FName, TMap<FString, bool>> ToolBoolBindings;
+    static TMap<FName, TMap<FString, TSharedPtr<FJsonValue>>> ToolStateValues;
+    static TMap<FName, TArray<FEditableTextWidgetBinding>> ToolEditableTextWidgets;
+    static TMap<FName, TArray<FCheckBoxWidgetBinding>> ToolCheckBoxWidgets;
+    static TMap<FName, TArray<FComboBoxWidgetBinding>> ToolComboBoxWidgets;
+    static TMap<FName, TArray<FTextBlockWidgetBinding>> ToolTextBlockWidgets;
+    static TMap<FName, TArray<FMultiLineTextWidgetBinding>> ToolMultiLineTextWidgets;
+    static TMap<FName, TArray<FProgressBarWidgetBinding>> ToolProgressBarWidgets;
+    static TMap<FName, TArray<TSharedPtr<FStateTableWidgetBinding>>> ToolStateTableWidgets;
+    static TMap<FName, TSet<FString>> ToolPendingClearedEditableCommits;
+    static TSet<FName> TabsRefreshingBindings;
+
+    static void ExecutePython(const FString &Command, const FName &TabId);
+    static FString BrowseForDirectory(const FString &Title, const FString &DefaultPath);
+    static FString BrowseForFile(const FString &Title, const FString &DefaultPath, const FString &DefaultFile, const FString &FileTypes);
+
+    static FString NormalizeSettingValue(const FString &Value, const FString &Fallback)
+    {
+        const FString Trimmed = Value.TrimStartAndEnd();
+        return Trimmed.IsEmpty() ? Fallback : Trimmed;
+    }
+
+    static FString EscapePythonString(const FString &Value)
+    {
+        FString Result = Value;
+        Result.ReplaceInline(TEXT("\\"), TEXT("\\\\"));
+        Result.ReplaceInline(TEXT("'"), TEXT("\\'"));
+        Result.ReplaceInline(TEXT("\r"), TEXT("\\r"));
+        Result.ReplaceInline(TEXT("\n"), TEXT("\\n"));
+        return Result;
+    }
+
+    static FString QuotePythonStringLiteral(const FString &Value)
+    {
+        return FString::Printf(TEXT("'%s'"), *EscapePythonString(Value));
+    }
+
+    static FString NormalizeToolLookupKey(const FString &Value)
+    {
         FString Result;
-        FString Overlap;
-        FString Wrapping;
-    };
-
-    using FStaticMeshPipelineRowPtr = TSharedPtr<FStaticMeshPipelineRowData>;
-
-    struct FLightmapResolutionState
-    {
-        FString Resolution = TEXT("64");
-        bool bOpenLevelOnly = false;
-        bool bOverrideOnly = false;
-        FString SortColumn = TEXT("Level");
-        FString SortDirection = TEXT("Asc");
-        FString ProgressText = TEXT("Idle");
-        float ProgressPercent = 0.0f;
-        FString StatusText = TEXT("Loading...");
-        TArray<FLightmapResolutionRowPtr> Rows;
-        TArray<FString> SelectedRowKeys;
-        FString DetailText = TEXT("Select map assets in the Content Browser, or keep a level open, then click Refresh.");
-    };
-
-    struct FStaticMeshPipelineState
-    {
-        bool bRisksOnly = false;
-        FString SortColumn = TEXT("Result");
-        FString SortDirection = TEXT("Desc");
-        FString ExportSource = TEXT("/Game");
-        FString ExportDestination;
-        FString ImportSource;
-        FString ImportDestination = TEXT("/Game");
-        FString ProgressText = TEXT("Idle");
-        float ProgressPercent = 0.0f;
-        FString StatusText = TEXT("Loading...");
-        TArray<FStaticMeshPipelineRowPtr> Rows;
-        TArray<FString> SelectedRowKeys;
-        FString DetailText = TEXT("Use Export All or Import/Reimport All to populate the pipeline results.");
-    };
-
-    struct FLightmapResolutionWidgets
-    {
-        TSharedPtr<SEditableTextBox> ResolutionInput;
-        TSharedPtr<SCheckBox> OpenLevelOnlyCheck;
-        TSharedPtr<SCheckBox> OverrideOnlyCheck;
-        TSharedPtr<SComboBox<TSharedPtr<FString>>> SortColumnCombo;
-        TSharedPtr<SComboBox<TSharedPtr<FString>>> SortDirectionCombo;
-        TSharedPtr<STextBlock> ProgressText;
-        TSharedPtr<SProgressBar> ProgressBar;
-        TSharedPtr<SMultiLineEditableTextBox> StatusOutput;
-        TSharedPtr<SListView<FLightmapResolutionRowPtr>> RowsListView;
-        TSharedPtr<SMultiLineEditableTextBox> DetailOutput;
-        TArray<TSharedPtr<FString>> SortColumnOptions;
-        TArray<TSharedPtr<FString>> SortDirectionOptions;
-        TArray<FLightmapResolutionRowPtr> RowItems;
-        TSharedPtr<FString> SelectedSortColumn;
-        TSharedPtr<FString> SelectedSortDirection;
-    };
-
-    struct FStaticMeshPipelineWidgets
-    {
-        TSharedPtr<SEditableTextBox> ExportSourceInput;
-        TSharedPtr<SEditableTextBox> ExportDestinationInput;
-        TSharedPtr<SEditableTextBox> ImportSourceInput;
-        TSharedPtr<SEditableTextBox> ImportDestinationInput;
-        TSharedPtr<SCheckBox> RisksOnlyCheck;
-        TSharedPtr<SComboBox<TSharedPtr<FString>>> SortColumnCombo;
-        TSharedPtr<SComboBox<TSharedPtr<FString>>> SortDirectionCombo;
-        TSharedPtr<STextBlock> ProgressText;
-        TSharedPtr<SProgressBar> ProgressBar;
-        TSharedPtr<SMultiLineEditableTextBox> StatusOutput;
-        TSharedPtr<SListView<FStaticMeshPipelineRowPtr>> RowsListView;
-        TSharedPtr<SMultiLineEditableTextBox> DetailOutput;
-        TArray<TSharedPtr<FString>> SortColumnOptions;
-        TArray<TSharedPtr<FString>> SortDirectionOptions;
-        TArray<FStaticMeshPipelineRowPtr> RowItems;
-        TSharedPtr<FString> SelectedSortColumn;
-        TSharedPtr<FString> SelectedSortDirection;
-    };
-
-    static FLightmapResolutionWidgets LightmapResolutionWidgets;
-    static FStaticMeshPipelineWidgets StaticMeshPipelineWidgets;
-
-    static FString GetUiJsonPath(const FName &TabName)
-    {
-        const TCHAR *RelativePath = TabName == LightmapResolutionTabName
-                                        ? TEXT("PEU/PythonEditorUtility/UI/LightmapResolutionTool.json")
-                                        : TEXT("PEU/PythonEditorUtility/UI/BuildLightingTool.json");
-        return FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / RelativePath);
-    }
-
-    static FString GetPythonContentPath()
-    {
-        return FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("PEU/PythonEditorUtility/Python"));
-    }
-
-    static FString GetStatusTextPath(const FName &TabName)
-    {
-        const TCHAR *RelativePath = TabName == LightmapResolutionTabName
-                                        ? TEXT("PEU/PythonEditorUtility/State/LightmapResolutionStatus.txt")
-                                        : (TabName == StaticMeshPipelineTabName
-                                               ? TEXT("PEU/PythonEditorUtility/State/StaticMeshPipelineStatus.txt")
-                                               : TEXT("PEU/PythonEditorUtility/State/BuildLightingStatus.txt"));
-        return FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / RelativePath);
-    }
-
-    static FString GetLightmapResolutionStatePath()
-    {
-        return FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("PEU/PythonEditorUtility/State/LightmapResolutionState.json"));
-    }
-
-    static FString GetStaticMeshPipelineStatePath()
-    {
-        return FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("PEU/PythonEditorUtility/State/StaticMeshPipelineState.json"));
-    }
-
-    static FString GetRefreshPythonCommand(const FName &TabName)
-    {
-        if (TabName == LightmapResolutionTabName)
+        Result.Reserve(Value.Len());
+        for (const TCHAR Character : Value)
         {
-            return TEXT("import PythonEditorUtility.LightmapResolutionTool as tool; tool.refresh_status()");
+            if (FChar::IsAlnum(Character))
+            {
+                Result.AppendChar(FChar::ToLower(Character));
+            }
         }
-
-        if (TabName == StaticMeshPipelineTabName)
-        {
-            return TEXT("import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.refresh_status()");
-        }
-
-        return TEXT("import PythonEditorUtility.BuildLightingTool as tool; tool.refresh_status()");
+        return Result;
     }
 
-    static FString LoadStatusText(const FName &TabName)
+    static FString NormalizeStateLookupKey(const FString &Value)
     {
-        FString StatusText;
-        if (FFileHelper::LoadFileToString(StatusText, *GetStatusTextPath(TabName)))
-        {
-            return StatusText;
-        }
-
-        return TEXT("Loading...");
+        return NormalizeToolLookupKey(Value);
     }
 
-    static void RefreshOutputTextBox(const FName &TabName)
+    static void SetToolStringBinding(const FName &TabId, const FString &Key, const FString &Value)
     {
-        TSharedPtr<SMultiLineEditableTextBox> *OutputTextBox = ToolOutputTextBoxes.Find(TabName);
-        if (OutputTextBox != nullptr && OutputTextBox->IsValid())
+        if (!Key.IsEmpty())
         {
-            (*OutputTextBox)->SetText(FText::FromString(LoadStatusText(TabName)));
+            ToolStringBindings.FindOrAdd(TabId).Add(NormalizeStateLookupKey(Key), Value);
         }
     }
 
-    static void EnsurePythonSearchPath()
+    static FString GetToolStringBinding(const FName &TabId, const FString &Key, const FString &Fallback = FString())
     {
-        if (IPythonScriptPlugin *PythonPlugin = IPythonScriptPlugin::Get())
+        if (const TMap<FString, FString> *Bindings = ToolStringBindings.Find(TabId))
         {
-            const FString PythonContentPath = GetPythonContentPath().ReplaceCharWithEscapedChar();
-            const FString PythonCommand = FString::Printf(
-                TEXT("import sys; path = r'%s'; normalized = path.replace('\\\\', '/'); existing = [entry.replace('\\\\', '/') for entry in sys.path]; sys.path.append(path) if normalized not in existing else None"),
-                *PythonContentPath);
-            PythonPlugin->ExecPythonCommand(*PythonCommand);
+            if (const FString *Value = Bindings->Find(NormalizeStateLookupKey(Key)))
+            {
+                return *Value;
+            }
+        }
+        return Fallback;
+    }
+
+    static void SyncEditableTextWidgetBinding(const FName &TabId, const FString &BindingKey, const FString &Value)
+    {
+        if (TArray<FEditableTextWidgetBinding> *Widgets = ToolEditableTextWidgets.Find(TabId))
+        {
+            const FString NormalizedBindingKey = NormalizeStateLookupKey(BindingKey);
+            for (const FEditableTextWidgetBinding &Binding : *Widgets)
+            {
+                if (Binding.BindingKey == NormalizedBindingKey)
+                {
+                    if (const TSharedPtr<SEditableTextBox> Widget = Binding.Widget.Pin())
+                    {
+                        Widget->SetText(FText::FromString(Value));
+                    }
+                }
+            }
         }
     }
 
-    static bool LoadJsonObjectFromFile(const FString &FilePath, TSharedPtr<FJsonObject> &JsonObject)
+    static FString TextCommitTypeToString(ETextCommit::Type CommitType)
+    {
+        switch (CommitType)
+        {
+        case ETextCommit::Default:
+            return TEXT("Default");
+        case ETextCommit::OnEnter:
+            return TEXT("OnEnter");
+        case ETextCommit::OnUserMovedFocus:
+            return TEXT("OnUserMovedFocus");
+        case ETextCommit::OnCleared:
+            return TEXT("OnCleared");
+        default:
+            return TEXT("Unknown");
+        }
+    }
+
+    static void SetToolBoolBinding(const FName &TabId, const FString &Key, bool bValue)
+    {
+        if (!Key.IsEmpty())
+        {
+            ToolBoolBindings.FindOrAdd(TabId).Add(NormalizeStateLookupKey(Key), bValue);
+        }
+    }
+
+    static bool GetToolBoolBinding(const FName &TabId, const FString &Key, bool bFallback = false)
+    {
+        if (const TMap<FString, bool> *Bindings = ToolBoolBindings.Find(TabId))
+        {
+            if (const bool *Value = Bindings->Find(NormalizeStateLookupKey(Key)))
+            {
+                return *Value;
+            }
+        }
+        return bFallback;
+    }
+
+    static FString ToPythonBool(bool bValue)
+    {
+        return bValue ? TEXT("True") : TEXT("False");
+    }
+
+    static FString ToPythonStringListLiteral(const TArray<FString> &Values)
+    {
+        TArray<FString> QuotedValues;
+        QuotedValues.Reserve(Values.Num());
+        for (const FString &Value : Values)
+        {
+            QuotedValues.Add(QuotePythonStringLiteral(Value));
+        }
+        return FString::Printf(TEXT("[%s]"), *FString::Join(QuotedValues, TEXT(", ")));
+    }
+
+    static void AppendUniqueString(TArray<FString> &Values, const FString &Value)
+    {
+        if (!Value.IsEmpty())
+        {
+            Values.AddUnique(Value);
+        }
+    }
+
+    static FString JsonValueToString(const TSharedPtr<FJsonValue> &Value, const FString &Fallback = FString());
+
+    static TArray<FString> GetJsonStringArray(const TSharedPtr<FJsonValue> &Value)
+    {
+        TArray<FString> Values;
+        if (Value.IsValid() && Value->Type == EJson::Array)
+        {
+            for (const TSharedPtr<FJsonValue> &Entry : Value->AsArray())
+            {
+                AppendUniqueString(Values, JsonValueToString(Entry));
+            }
+        }
+        return Values;
+    }
+
+    static bool AreStringArraysEquivalent(const TArray<FString> &Left, const TArray<FString> &Right)
+    {
+        if (Left.Num() != Right.Num())
+        {
+            return false;
+        }
+
+        TSet<FString> LeftSet;
+        TSet<FString> RightSet;
+        for (const FString &Value : Left)
+        {
+            LeftSet.Add(Value);
+        }
+        for (const FString &Value : Right)
+        {
+            RightSet.Add(Value);
+        }
+        return LeftSet.Includes(RightSet) && RightSet.Includes(LeftSet);
+    }
+
+    static FString ResolveCommandTemplate(const FString &CommandTemplate, const FName &TabId, const FString *CurrentTextValue = nullptr, const bool *CurrentBoolValue = nullptr, const TArray<FString> *CurrentSelectedKeys = nullptr, const FString *CurrentSelectedKey = nullptr)
+    {
+        FString Resolved = CommandTemplate;
+        if (CurrentTextValue != nullptr)
+        {
+            Resolved.ReplaceInline(TEXT("%Text%"), *QuotePythonStringLiteral(*CurrentTextValue));
+            Resolved.ReplaceInline(TEXT("%Value%"), *QuotePythonStringLiteral(*CurrentTextValue));
+        }
+        if (CurrentBoolValue != nullptr)
+        {
+            Resolved.ReplaceInline(TEXT("%Checked%"), *ToPythonBool(*CurrentBoolValue));
+            Resolved.ReplaceInline(TEXT("%Value%"), *ToPythonBool(*CurrentBoolValue));
+        }
+        if (CurrentSelectedKey != nullptr)
+        {
+            Resolved.ReplaceInline(TEXT("%SelectedKey%"), *QuotePythonStringLiteral(*CurrentSelectedKey));
+        }
+        if (CurrentSelectedKeys != nullptr)
+        {
+            Resolved.ReplaceInline(TEXT("%SelectedKeys%"), *ToPythonStringListLiteral(*CurrentSelectedKeys));
+        }
+
+        if (const TMap<FString, FString> *StringBindings = ToolStringBindings.Find(TabId))
+        {
+            for (const TPair<FString, FString> &Binding : *StringBindings)
+            {
+                Resolved.ReplaceInline(*FString::Printf(TEXT("%%Widget:%s%%"), *Binding.Key), *QuotePythonStringLiteral(Binding.Value));
+            }
+        }
+        if (const TMap<FString, bool> *BoolBindings = ToolBoolBindings.Find(TabId))
+        {
+            for (const TPair<FString, bool> &Binding : *BoolBindings)
+            {
+                Resolved.ReplaceInline(*FString::Printf(TEXT("%%Widget:%s%%"), *Binding.Key), *ToPythonBool(Binding.Value));
+            }
+        }
+
+        return Resolved;
+    }
+
+    static FString GetPluginDefaultConfigPath()
+    {
+        const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("PythonEditorUtility"));
+        return Plugin.IsValid() ? FPaths::Combine(Plugin->GetBaseDir(), TEXT("Config/DefaultPythonEditorUtility.ini")) : FString();
+    }
+
+    static FString GetPluginIdentifier()
+    {
+        const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("PythonEditorUtility"));
+        return Plugin.IsValid() ? Plugin->GetName() : TEXT("PythonEditorUtility");
+    }
+
+    static FString GetProjectOverrideConfigPath()
+    {
+        return FPaths::Combine(FPaths::ProjectConfigDir(), TEXT("DefaultPythonEditorUtility.ini"));
+    }
+
+    static void ApplyIntegrationSettingsFromFile(const FString &ConfigPath, FPythonEditorUtilityIntegrationSettings &Settings)
+    {
+        if (ConfigPath.IsEmpty() || !FPaths::FileExists(ConfigPath))
+        {
+            return;
+        }
+
+        FConfigFile ConfigFile;
+        ConfigFile.Read(ConfigPath);
+
+        FString Value;
+        static const TCHAR *Section = TEXT("PythonEditorUtility.Integration");
+
+        if (ConfigFile.GetString(Section, TEXT("PythonRoot"), Value))
+        {
+            Settings.PythonRoot = NormalizeSettingValue(Value, Settings.PythonRoot);
+        }
+        if (ConfigFile.GetString(Section, TEXT("UiRoot"), Value))
+        {
+            Settings.UiRoot = NormalizeSettingValue(Value, Settings.UiRoot);
+        }
+        if (ConfigFile.GetString(Section, TEXT("StateRoot"), Value))
+        {
+            Settings.StateRoot = NormalizeSettingValue(Value, Settings.StateRoot);
+        }
+        if (ConfigFile.GetString(Section, TEXT("PythonPackage"), Value))
+        {
+            Settings.PythonPackage = NormalizeSettingValue(Value, Settings.PythonPackage);
+        }
+    }
+
+    static const FPythonEditorUtilityIntegrationSettings &GetIntegrationSettings()
+    {
+        static bool bInitialized = false;
+        static FPythonEditorUtilityIntegrationSettings Settings;
+        if (!bInitialized)
+        {
+            ApplyIntegrationSettingsFromFile(GetPluginDefaultConfigPath(), Settings);
+            ApplyIntegrationSettingsFromFile(GetProjectOverrideConfigPath(), Settings);
+            bInitialized = true;
+        }
+        return Settings;
+    }
+
+    static FString ResolveProjectPath(const FString &RelativePath)
+    {
+        const FString Normalized = RelativePath.TrimStartAndEnd();
+        if (Normalized.IsEmpty())
+        {
+            return FPaths::ProjectDir();
+        }
+        if (FPaths::IsRelative(Normalized))
+        {
+            return FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectDir(), Normalized));
+        }
+        return FPaths::ConvertRelativePathToFull(Normalized);
+    }
+
+    static FString GetPythonPackageName()
+    {
+        return GetIntegrationSettings().PythonPackage;
+    }
+
+    static FString GetToolModuleImportPath(const FString &ToolName)
+    {
+        return FString::Printf(TEXT("%s.%s"), *GetPythonPackageName(), *ToolName);
+    }
+
+    static FString RewriteConfiguredPythonPackage(const FString &Command)
+    {
+        const FString PackageName = GetPythonPackageName();
+        if (PackageName.IsEmpty() || PackageName == TEXT("PythonEditorUtility"))
+        {
+            return Command;
+        }
+
+        FString Rewritten = Command;
+        Rewritten.ReplaceInline(TEXT("PythonEditorUtility."), *(PackageName + TEXT(".")));
+        Rewritten.ReplaceInline(TEXT("import PythonEditorUtility"), *(TEXT("import ") + PackageName));
+        Rewritten.ReplaceInline(TEXT("from PythonEditorUtility"), *(TEXT("from ") + PackageName));
+        return Rewritten;
+    }
+
+    static bool LoadJsonObjectFromFile(const FString &FilePath, TSharedPtr<FJsonObject> &OutObject)
     {
         FString JsonText;
         if (!FFileHelper::LoadFileToString(JsonText, *FilePath))
@@ -248,56 +514,558 @@ namespace PythonEditorUtility
         }
 
         const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
-        return FJsonSerializer::Deserialize(Reader, JsonObject) && JsonObject.IsValid();
+        return FJsonSerializer::Deserialize(Reader, OutObject) && OutObject.IsValid();
     }
 
-    static TSharedPtr<FString> FindOption(const TArray<TSharedPtr<FString>> &Options, const FString &Value)
+    static FString MakeDefaultStatusFileName(const FString &ToolName)
     {
-        for (const TSharedPtr<FString> &Option : Options)
+        FString BaseName = ToolName;
+        BaseName.RemoveFromEnd(TEXT("Tool"));
+        if (BaseName.IsEmpty())
         {
-            if (Option.IsValid() && Option->Equals(Value, ESearchCase::CaseSensitive))
-            {
-                return Option;
-            }
+            BaseName = ToolName;
+        }
+        return BaseName + TEXT("Status.txt");
+    }
+
+    static FName MakeTabId(const FString &ToolName)
+    {
+        return FName(*FString::Printf(TEXT("%s.%s"), *GetPluginIdentifier(), *ToolName));
+    }
+
+    static FString GetStatusTextPath(const FName &TabId)
+    {
+        if (const FDiscoveredToolDefinition *Tool = ToolsByTabId.Find(TabId))
+        {
+            return FPaths::Combine(ResolveProjectPath(GetIntegrationSettings().StateRoot), Tool->StatusFileName);
+        }
+        return FString();
+    }
+
+    static FString GetStateJsonPath(const FName &TabId)
+    {
+        if (const FDiscoveredToolDefinition *Tool = ToolsByTabId.Find(TabId))
+        {
+            return FPaths::Combine(ResolveProjectPath(GetIntegrationSettings().StateRoot), Tool->StateFileName);
+        }
+        return FString();
+    }
+
+    static FString LoadStatusText(const FName &TabId)
+    {
+        const FString StatusPath = GetStatusTextPath(TabId);
+        FString StatusText;
+        if (!StatusPath.IsEmpty() && FFileHelper::LoadFileToString(StatusText, *StatusPath))
+        {
+            return StatusText;
+        }
+        return TEXT("Loading...");
+    }
+
+    static FString MakeDefaultStateFileName(const FString &ToolName)
+    {
+        FString BaseName = ToolName;
+        BaseName.RemoveFromEnd(TEXT("Tool"));
+        if (BaseName.IsEmpty())
+        {
+            BaseName = ToolName;
+        }
+        return BaseName + TEXT("State.json");
+    }
+
+    static FString JsonValueToString(const TSharedPtr<FJsonValue> &Value, const FString &Fallback)
+    {
+        if (!Value.IsValid())
+        {
+            return Fallback;
         }
 
-        return Options.Num() > 0 ? Options[0] : nullptr;
-    }
-
-    static ECheckBoxState ToCheckBoxState(const bool bChecked)
-    {
-        return bChecked ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
-    }
-
-    static FString ToPythonBool(const bool bValue)
-    {
-        return bValue ? TEXT("True") : TEXT("False");
-    }
-
-    static FString EscapePythonString(const FString &Value)
-    {
-        FString Escaped = Value;
-        Escaped.ReplaceInline(TEXT("\\"), TEXT("\\\\"));
-        Escaped.ReplaceInline(TEXT("'"), TEXT("\\'"));
-        Escaped.ReplaceInline(TEXT("\r"), TEXT("\\r"));
-        Escaped.ReplaceInline(TEXT("\n"), TEXT("\\n"));
-        return Escaped;
-    }
-
-    static FString BuildPythonStringListLiteral(const TArray<FString> &Values)
-    {
-        FString Result = TEXT("[");
-        for (int32 Index = 0; Index < Values.Num(); ++Index)
+        switch (Value->Type)
         {
-            if (Index > 0)
-            {
-                Result += TEXT(", ");
-            }
-
-            Result += FString::Printf(TEXT("'%s'"), *EscapePythonString(Values[Index]));
+        case EJson::String:
+            return Value->AsString();
+        case EJson::Number:
+            return FString::SanitizeFloat(Value->AsNumber());
+        case EJson::Boolean:
+            return Value->AsBool() ? TEXT("True") : TEXT("False");
+        case EJson::Null:
+            return FString();
+        default:
+            return Fallback;
         }
-        Result += TEXT("]");
+    }
+
+    static bool JsonValueToBool(const TSharedPtr<FJsonValue> &Value, bool bFallback)
+    {
+        if (!Value.IsValid())
+        {
+            return bFallback;
+        }
+        if (Value->Type == EJson::Boolean)
+        {
+            return Value->AsBool();
+        }
+
+        const FString StringValue = JsonValueToString(Value).ToLower();
+        if (StringValue == TEXT("true") || StringValue == TEXT("1") || StringValue == TEXT("yes") || StringValue == TEXT("checked"))
+        {
+            return true;
+        }
+        if (StringValue == TEXT("false") || StringValue == TEXT("0") || StringValue == TEXT("no") || StringValue == TEXT("unchecked"))
+        {
+            return false;
+        }
+        return bFallback;
+    }
+
+    static float JsonValueToFloat(const TSharedPtr<FJsonValue> &Value, float Fallback)
+    {
+        if (!Value.IsValid())
+        {
+            return Fallback;
+        }
+        if (Value->Type == EJson::Number)
+        {
+            return (float)Value->AsNumber();
+        }
+
+        const FString StringValue = JsonValueToString(Value);
+        return StringValue.IsEmpty() ? Fallback : FCString::Atof(*StringValue);
+    }
+
+    static FString GetDefinitionStateKey(const TSharedPtr<FJsonObject> &Definition, const FString &Fallback)
+    {
+        FString StateKey;
+        if (Definition->TryGetStringField(TEXT("StateKey"), StateKey) && !StateKey.TrimStartAndEnd().IsEmpty())
+        {
+            return NormalizeStateLookupKey(StateKey);
+        }
+        return NormalizeStateLookupKey(Fallback);
+    }
+
+    static void LoadToolStateValues(const FName &TabId)
+    {
+        TMap<FString, TSharedPtr<FJsonValue>> &StateMap = ToolStateValues.FindOrAdd(TabId);
+        StateMap.Empty();
+
+        const FString StatePath = GetStateJsonPath(TabId);
+        TSharedPtr<FJsonObject> RootObject;
+        if (StatePath.IsEmpty() || !LoadJsonObjectFromFile(StatePath, RootObject))
+        {
+            return;
+        }
+
+        for (const TPair<FString, TSharedPtr<FJsonValue>> &Pair : RootObject->Values)
+        {
+            StateMap.Add(NormalizeStateLookupKey(Pair.Key), Pair.Value);
+        }
+    }
+
+    static TSharedPtr<FJsonValue> FindToolStateValue(const FName &TabId, const FString &StateKey)
+    {
+        if (const TMap<FString, TSharedPtr<FJsonValue>> *StateMap = ToolStateValues.Find(TabId))
+        {
+            if (const TSharedPtr<FJsonValue> *Value = StateMap->Find(NormalizeStateLookupKey(StateKey)))
+            {
+                return *Value;
+            }
+        }
+        return nullptr;
+    }
+
+    static FString ApplyStateFormat(const FString &Format, const FString &Value)
+    {
+        if (Format.IsEmpty())
+        {
+            return Value;
+        }
+
+        FString Result = Format;
+        Result.ReplaceInline(TEXT("%Value%"), *Value);
         return Result;
+    }
+
+    static void RefreshToolOutput(const FName &TabId)
+    {
+        LoadToolStateValues(TabId);
+        TabsRefreshingBindings.Add(TabId);
+
+        if (TArray<FEditableTextWidgetBinding> *Widgets = ToolEditableTextWidgets.Find(TabId))
+        {
+            for (const FEditableTextWidgetBinding &Binding : *Widgets)
+            {
+                if (const TSharedPtr<SEditableTextBox> Widget = Binding.Widget.Pin())
+                {
+                    const FString StateValue = JsonValueToString(FindToolStateValue(TabId, Binding.StateKey), GetToolStringBinding(TabId, Binding.BindingKey));
+                    SetToolStringBinding(TabId, Binding.BindingKey, StateValue);
+                    Widget->SetText(FText::FromString(StateValue));
+                }
+            }
+        }
+
+        if (TArray<FCheckBoxWidgetBinding> *Widgets = ToolCheckBoxWidgets.Find(TabId))
+        {
+            for (const FCheckBoxWidgetBinding &Binding : *Widgets)
+            {
+                if (const TSharedPtr<SCheckBox> Widget = Binding.Widget.Pin())
+                {
+                    const bool bStateValue = JsonValueToBool(FindToolStateValue(TabId, Binding.StateKey), GetToolBoolBinding(TabId, Binding.BindingKey));
+                    SetToolBoolBinding(TabId, Binding.BindingKey, bStateValue);
+                    Widget->SetIsChecked(bStateValue ? ECheckBoxState::Checked : ECheckBoxState::Unchecked);
+                }
+            }
+        }
+
+        if (TArray<FComboBoxWidgetBinding> *Widgets = ToolComboBoxWidgets.Find(TabId))
+        {
+            for (const FComboBoxWidgetBinding &Binding : *Widgets)
+            {
+                if (const TSharedPtr<FStringComboBox> Widget = Binding.Widget.Pin())
+                {
+                    FString SelectedText = JsonValueToString(FindToolStateValue(TabId, Binding.StateKey), GetToolStringBinding(TabId, Binding.BindingKey));
+                    if (SelectedText.IsEmpty() && Binding.Options.IsValid() && Binding.Options->Num() > 0)
+                    {
+                        SelectedText = *(*Binding.Options)[0];
+                    }
+
+                    TSharedPtr<FString> SelectedItem;
+                    if (Binding.Options.IsValid())
+                    {
+                        for (const TSharedPtr<FString> &Option : *Binding.Options)
+                        {
+                            if (Option.IsValid() && *Option == SelectedText)
+                            {
+                                SelectedItem = Option;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!SelectedItem.IsValid() && Binding.Options.IsValid() && Binding.Options->Num() > 0)
+                    {
+                        SelectedItem = (*Binding.Options)[0];
+                        SelectedText = *SelectedItem;
+                    }
+
+                    if (Binding.CurrentValue.IsValid())
+                    {
+                        *Binding.CurrentValue = SelectedText;
+                    }
+                    SetToolStringBinding(TabId, Binding.BindingKey, SelectedText);
+                    if (SelectedItem.IsValid())
+                    {
+                        Widget->SetSelectedItem(SelectedItem);
+                    }
+                }
+            }
+        }
+
+        if (TArray<FTextBlockWidgetBinding> *Widgets = ToolTextBlockWidgets.Find(TabId))
+        {
+            for (const FTextBlockWidgetBinding &Binding : *Widgets)
+            {
+                if (const TSharedPtr<STextBlock> Widget = Binding.Widget.Pin())
+                {
+                    const FString StateValue = JsonValueToString(FindToolStateValue(TabId, Binding.StateKey));
+                    Widget->SetText(FText::FromString(ApplyStateFormat(Binding.Format, StateValue)));
+                }
+            }
+        }
+
+        if (TArray<FMultiLineTextWidgetBinding> *Widgets = ToolMultiLineTextWidgets.Find(TabId))
+        {
+            for (const FMultiLineTextWidgetBinding &Binding : *Widgets)
+            {
+                if (const TSharedPtr<SMultiLineEditableTextBox> Widget = Binding.Widget.Pin())
+                {
+                    const FString FallbackText = Binding.StateKey.IsEmpty() ? LoadStatusText(TabId) : FString();
+                    const FString StateValue = JsonValueToString(FindToolStateValue(TabId, Binding.StateKey), FallbackText);
+                    Widget->SetText(FText::FromString(StateValue));
+                }
+            }
+        }
+
+        if (TArray<FProgressBarWidgetBinding> *Widgets = ToolProgressBarWidgets.Find(TabId))
+        {
+            for (const FProgressBarWidgetBinding &Binding : *Widgets)
+            {
+                if (const TSharedPtr<SProgressBar> Widget = Binding.Widget.Pin())
+                {
+                    Widget->SetPercent(JsonValueToFloat(FindToolStateValue(TabId, Binding.StateKey), 0.0f));
+                }
+            }
+        }
+
+        if (TArray<TSharedPtr<FStateTableWidgetBinding>> *Widgets = ToolStateTableWidgets.Find(TabId))
+        {
+            for (const TSharedPtr<FStateTableWidgetBinding> &Binding : *Widgets)
+            {
+                if (!Binding.IsValid())
+                {
+                    continue;
+                }
+
+                Binding->RowItems.Empty();
+                const TSharedPtr<FJsonValue> RowsValue = FindToolStateValue(TabId, Binding->RowsStateKey);
+                if (RowsValue.IsValid() && RowsValue->Type == EJson::Array)
+                {
+                    for (const TSharedPtr<FJsonValue> &RowValue : RowsValue->AsArray())
+                    {
+                        const TSharedPtr<FJsonObject> RowObject = RowValue->AsObject();
+                        if (!RowObject.IsValid())
+                        {
+                            continue;
+                        }
+
+                        FStateTableRowPtr RowItem = MakeShared<FStateTableRowData>();
+                        RowItem->Key = JsonValueToString(RowObject->TryGetField(TEXT("key")));
+                        for (const TPair<FString, TSharedPtr<FJsonValue>> &Pair : RowObject->Values)
+                        {
+                            RowItem->Cells.Add(NormalizeStateLookupKey(Pair.Key), JsonValueToString(Pair.Value));
+                        }
+                        Binding->RowItems.Add(RowItem);
+                    }
+                }
+
+                if (const TSharedPtr<FStateTableListView> Widget = Binding->Widget.Pin())
+                {
+                    Widget->RequestListRefresh();
+                    Widget->ClearSelection();
+
+                    const TArray<FString> SelectedKeys = GetJsonStringArray(FindToolStateValue(TabId, Binding->SelectedKeysStateKey));
+
+                    for (const FStateTableRowPtr &RowItem : Binding->RowItems)
+                    {
+                        if (RowItem.IsValid() && SelectedKeys.Contains(RowItem->Key))
+                        {
+                            Widget->SetItemSelection(RowItem, true, ESelectInfo::Direct);
+                        }
+                    }
+                }
+            }
+        }
+
+        TabsRefreshingBindings.Remove(TabId);
+    }
+
+    static const FDiscoveredToolDefinition *FindToolByTabId(const FName &TabId)
+    {
+        return ToolsByTabId.Find(TabId);
+    }
+
+    static const FDiscoveredToolDefinition *FindToolByIdentifier(const FString &Identifier)
+    {
+        const FString LookupKey = NormalizeToolLookupKey(Identifier);
+        if (LookupKey.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        for (const FDiscoveredToolDefinition &Tool : DiscoveredTools)
+        {
+            if (NormalizeToolLookupKey(Tool.ToolName) == LookupKey || NormalizeToolLookupKey(Tool.TabLabel) == LookupKey)
+            {
+                return &Tool;
+            }
+
+            FString ToolNameWithoutSuffix = Tool.ToolName;
+            ToolNameWithoutSuffix.RemoveFromEnd(TEXT("Tool"));
+            if (NormalizeToolLookupKey(ToolNameWithoutSuffix) == LookupKey)
+            {
+                return &Tool;
+            }
+        }
+
+        return nullptr;
+    }
+
+    static void EnsurePythonSearchPath()
+    {
+        const FString PythonRoot = ResolveProjectPath(GetIntegrationSettings().PythonRoot);
+        if (PythonRoot.IsEmpty())
+        {
+            return;
+        }
+
+        if (IPythonScriptPlugin *PythonPlugin = IPythonScriptPlugin::Get())
+        {
+            const FString Command = FString::Printf(
+                TEXT("import os, sys; path=os.path.normpath('%s'); existing=[os.path.normpath(p) for p in sys.path]; sys.path.insert(0, path) if path not in existing else None"),
+                *EscapePythonString(PythonRoot));
+            PythonPlugin->ExecPythonCommand(*Command);
+        }
+    }
+
+    static bool HandlePeuCommand(const FString &Command, const FName &TabId)
+    {
+        if (!Command.StartsWith(TEXT("PEU:")))
+        {
+            return false;
+        }
+
+        FString Payload = Command.RightChop(4).TrimStartAndEnd();
+
+        if (Payload.StartsWith(TEXT("BrowseFolder:")))
+        {
+            const FString Aka = Payload.RightChop(13).TrimStartAndEnd();
+            const FString BindingKey = NormalizeStateLookupKey(Aka);
+            const FString CurrentValue = GetToolStringBinding(TabId, BindingKey);
+            const FString SelectedFolder = BrowseForDirectory(
+                FString::Printf(TEXT("Choose %s"), *Aka), CurrentValue);
+            if (!SelectedFolder.IsEmpty())
+            {
+                SetToolStringBinding(TabId, BindingKey, SelectedFolder);
+                SyncEditableTextWidgetBinding(TabId, BindingKey, SelectedFolder);
+                if (TArray<FEditableTextWidgetBinding> *Widgets = ToolEditableTextWidgets.Find(TabId))
+                {
+                    for (const FEditableTextWidgetBinding &Binding : *Widgets)
+                    {
+                        if (Binding.BindingKey == BindingKey && !Binding.OnTextCommittedCmd.IsEmpty())
+                        {
+                            ExecutePython(ResolveCommandTemplate(Binding.OnTextCommittedCmd, TabId, &SelectedFolder, nullptr), TabId);
+                            break;
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
+        if (Payload.StartsWith(TEXT("BrowseFile:")))
+        {
+            const FString Aka = Payload.RightChop(11).TrimStartAndEnd();
+            const FString BindingKey = NormalizeStateLookupKey(Aka);
+            const FString CurrentValue = GetToolStringBinding(TabId, BindingKey);
+            const FString DefaultPath = FPaths::GetPath(CurrentValue);
+            const FString DefaultFile = FPaths::GetCleanFilename(CurrentValue);
+            const FString SelectedFile = BrowseForFile(
+                FString::Printf(TEXT("Choose %s"), *Aka),
+                DefaultPath, DefaultFile, TEXT("All files|*.*"));
+            if (!SelectedFile.IsEmpty())
+            {
+                SetToolStringBinding(TabId, BindingKey, SelectedFile);
+                SyncEditableTextWidgetBinding(TabId, BindingKey, SelectedFile);
+                if (TArray<FEditableTextWidgetBinding> *Widgets = ToolEditableTextWidgets.Find(TabId))
+                {
+                    for (const FEditableTextWidgetBinding &Binding : *Widgets)
+                    {
+                        if (Binding.BindingKey == BindingKey && !Binding.OnTextCommittedCmd.IsEmpty())
+                        {
+                            ExecutePython(ResolveCommandTemplate(Binding.OnTextCommittedCmd, TabId, &SelectedFile, nullptr), TabId);
+                            break;
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
+        if (Payload.StartsWith(TEXT("OpenTool:")))
+        {
+            Payload = Payload.RightChop(9).TrimStartAndEnd();
+        }
+        else if (Payload.StartsWith(TEXT("Open")))
+        {
+            Payload = Payload.RightChop(4).TrimStartAndEnd();
+        }
+
+        if (const FDiscoveredToolDefinition *Tool = FindToolByIdentifier(Payload))
+        {
+            FGlobalTabmanager::Get()->TryInvokeTab(Tool->TabId);
+            RefreshToolOutput(Tool->TabId);
+            return true;
+        }
+
+        return true;
+    }
+
+    static void ExecutePython(const FString &Command, const FName &TabId)
+    {
+        EnsurePythonSearchPath();
+        if (HandlePeuCommand(Command, TabId))
+        {
+            RefreshToolOutput(TabId);
+            return;
+        }
+
+        if (IPythonScriptPlugin *PythonPlugin = IPythonScriptPlugin::Get())
+        {
+            const FString RewrittenCommand = RewriteConfiguredPythonPackage(Command);
+            PythonPlugin->ExecPythonCommand(*RewrittenCommand);
+        }
+
+        RefreshToolOutput(TabId);
+    }
+
+    static void RunInitPython(const FDiscoveredToolDefinition &Tool)
+    {
+        FString InitCommand = Tool.InitPyCmd.TrimStartAndEnd();
+        if (InitCommand.IsEmpty())
+        {
+            InitCommand = FString::Printf(TEXT("import %s as tool; tool.refresh_status()"), *GetToolModuleImportPath(Tool.ToolName));
+        }
+        else
+        {
+            const FString QuotedJsonPath = FString::Printf(TEXT("'%s'"), *EscapePythonString(Tool.JsonPath));
+            InitCommand = InitCommand.Replace(TEXT("%JsonPath"), *QuotedJsonPath);
+        }
+
+        ExecutePython(InitCommand, Tool.TabId);
+    }
+
+    static const TSharedPtr<FJsonObject> GetFirstChildObject(const TSharedPtr<FJsonObject> &Object, const TSet<FString> &ExcludedFields)
+    {
+        for (const TPair<FString, TSharedPtr<FJsonValue>> &Pair : Object->Values)
+        {
+            if (ExcludedFields.Contains(Pair.Key))
+            {
+                continue;
+            }
+
+            if (Pair.Value.IsValid() && Pair.Value->Type == EJson::Object)
+            {
+                return Pair.Value->AsObject();
+            }
+        }
+
+        return nullptr;
+    }
+
+    static FString GetFirstChildWidgetType(const TSharedPtr<FJsonObject> &Object, const TSet<FString> &ExcludedFields)
+    {
+        for (const TPair<FString, TSharedPtr<FJsonValue>> &Pair : Object->Values)
+        {
+            if (!ExcludedFields.Contains(Pair.Key) && Pair.Value.IsValid() && Pair.Value->Type == EJson::Object)
+            {
+                return Pair.Key;
+            }
+        }
+        return FString();
+    }
+
+    static FMargin ParsePadding(const TArray<TSharedPtr<FJsonValue>> *PaddingValues)
+    {
+        if (PaddingValues == nullptr)
+        {
+            return FMargin(0.0f);
+        }
+        if (PaddingValues->Num() == 1)
+        {
+            return FMargin((float)(*PaddingValues)[0]->AsNumber());
+        }
+        if (PaddingValues->Num() == 2)
+        {
+            return FMargin((float)(*PaddingValues)[0]->AsNumber(), (float)(*PaddingValues)[1]->AsNumber());
+        }
+        if (PaddingValues->Num() == 4)
+        {
+            return FMargin(
+                (float)(*PaddingValues)[0]->AsNumber(),
+                (float)(*PaddingValues)[1]->AsNumber(),
+                (float)(*PaddingValues)[2]->AsNumber(),
+                (float)(*PaddingValues)[3]->AsNumber());
+        }
+        return FMargin(0.0f);
     }
 
     static FString BrowseForDirectory(const FString &Title, const FString &DefaultPath)
@@ -323,564 +1091,65 @@ namespace PythonEditorUtility
         return bOpened ? SelectedFolder : FString();
     }
 
-    static FLightmapResolutionState LoadLightmapResolutionState()
+    static FString BrowseForFile(const FString &Title, const FString &DefaultPath, const FString &DefaultFile, const FString &FileTypes)
     {
-        FLightmapResolutionState State;
-        TSharedPtr<FJsonObject> RootObject;
-        if (!LoadJsonObjectFromFile(GetLightmapResolutionStatePath(), RootObject))
+        IDesktopPlatform *DesktopPlatform = FDesktopPlatformModule::Get();
+        if (DesktopPlatform == nullptr)
         {
-            State.StatusText = LoadStatusText(LightmapResolutionTabName);
-            return State;
+            return FString();
         }
 
-        RootObject->TryGetStringField(TEXT("resolution"), State.Resolution);
-        RootObject->TryGetBoolField(TEXT("open_level_only"), State.bOpenLevelOnly);
-        RootObject->TryGetBoolField(TEXT("override_only"), State.bOverrideOnly);
-        RootObject->TryGetStringField(TEXT("sort_column"), State.SortColumn);
-        RootObject->TryGetStringField(TEXT("sort_direction"), State.SortDirection);
-        RootObject->TryGetStringField(TEXT("progress_text"), State.ProgressText);
-        RootObject->TryGetStringField(TEXT("status_text"), State.StatusText);
-        RootObject->TryGetStringField(TEXT("detail_text"), State.DetailText);
-
-        const TArray<TSharedPtr<FJsonValue>> *SelectedRowKeys = nullptr;
-        if (RootObject->TryGetArrayField(TEXT("selected_row_keys"), SelectedRowKeys) && SelectedRowKeys != nullptr)
+        void *ParentWindowHandle = nullptr;
+        if (FSlateApplication::IsInitialized())
         {
-            for (const TSharedPtr<FJsonValue> &SelectedValue : *SelectedRowKeys)
+            const TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindBestParentWindowForDialogs(nullptr);
+            if (ParentWindow.IsValid() && ParentWindow->GetNativeWindow().IsValid())
             {
-                State.SelectedRowKeys.Add(SelectedValue->AsString());
+                ParentWindowHandle = ParentWindow->GetNativeWindow()->GetOSWindowHandle();
             }
         }
 
-        const TArray<TSharedPtr<FJsonValue>> *Rows = nullptr;
-        if (RootObject->TryGetArrayField(TEXT("rows"), Rows) && Rows != nullptr)
-        {
-            for (const TSharedPtr<FJsonValue> &RowValue : *Rows)
-            {
-                const TSharedPtr<FJsonObject> RowObject = RowValue->AsObject();
-                if (!RowObject.IsValid())
-                {
-                    continue;
-                }
-
-                FLightmapResolutionRowPtr Row = MakeShared<FLightmapResolutionRowData>();
-                RowObject->TryGetStringField(TEXT("key"), Row->Key);
-                RowObject->TryGetStringField(TEXT("level"), Row->Level);
-                RowObject->TryGetStringField(TEXT("actor"), Row->Actor);
-                RowObject->TryGetStringField(TEXT("component"), Row->Component);
-                RowObject->TryGetStringField(TEXT("mesh"), Row->Mesh);
-                RowObject->TryGetStringField(TEXT("mobility"), Row->Mobility);
-                RowObject->TryGetStringField(TEXT("effective"), Row->Effective);
-                RowObject->TryGetStringField(TEXT("asset"), Row->Asset);
-                RowObject->TryGetStringField(TEXT("override"), Row->Override);
-                State.Rows.Add(Row);
-            }
-        }
-
-        double ProgressPercent = 0.0;
-        if (RootObject->TryGetNumberField(TEXT("progress_percent"), ProgressPercent))
-        {
-            State.ProgressPercent = (float)ProgressPercent;
-        }
-
-        return State;
+        TArray<FString> SelectedFiles;
+        const bool bOpened = DesktopPlatform->OpenFileDialog(
+            ParentWindowHandle,
+            Title,
+            DefaultPath,
+            DefaultFile,
+            FileTypes,
+            EFileDialogFlags::None,
+            SelectedFiles);
+        return bOpened && SelectedFiles.Num() > 0 ? SelectedFiles[0] : FString();
     }
 
-    static void RefreshLightmapResolutionWidgets()
+    static TSharedRef<SWidget> BuildWidgetFromDefinition(const FString &WidgetType, const TSharedPtr<FJsonObject> &Definition, const FName &TabId);
+
+    static void ResetToolWidgetRegistry(const FName &TabId)
     {
-        const FLightmapResolutionState State = LoadLightmapResolutionState();
-
-        if (LightmapResolutionWidgets.ResolutionInput.IsValid())
-        {
-            LightmapResolutionWidgets.ResolutionInput->SetText(FText::FromString(State.Resolution));
-        }
-        if (LightmapResolutionWidgets.OpenLevelOnlyCheck.IsValid())
-        {
-            LightmapResolutionWidgets.OpenLevelOnlyCheck->SetIsChecked(ToCheckBoxState(State.bOpenLevelOnly));
-        }
-        if (LightmapResolutionWidgets.OverrideOnlyCheck.IsValid())
-        {
-            LightmapResolutionWidgets.OverrideOnlyCheck->SetIsChecked(ToCheckBoxState(State.bOverrideOnly));
-        }
-        if (LightmapResolutionWidgets.SortColumnCombo.IsValid())
-        {
-            LightmapResolutionWidgets.SelectedSortColumn = FindOption(LightmapResolutionWidgets.SortColumnOptions, State.SortColumn);
-            if (LightmapResolutionWidgets.SelectedSortColumn.IsValid())
-            {
-                LightmapResolutionWidgets.SortColumnCombo->SetSelectedItem(LightmapResolutionWidgets.SelectedSortColumn);
-            }
-        }
-        if (LightmapResolutionWidgets.SortDirectionCombo.IsValid())
-        {
-            LightmapResolutionWidgets.SelectedSortDirection = FindOption(LightmapResolutionWidgets.SortDirectionOptions, State.SortDirection);
-            if (LightmapResolutionWidgets.SelectedSortDirection.IsValid())
-            {
-                LightmapResolutionWidgets.SortDirectionCombo->SetSelectedItem(LightmapResolutionWidgets.SelectedSortDirection);
-            }
-        }
-        if (LightmapResolutionWidgets.ProgressText.IsValid())
-        {
-            LightmapResolutionWidgets.ProgressText->SetText(FText::FromString(State.ProgressText));
-        }
-        if (LightmapResolutionWidgets.ProgressBar.IsValid())
-        {
-            LightmapResolutionWidgets.ProgressBar->SetPercent(FMath::Clamp(State.ProgressPercent, 0.0f, 1.0f));
-        }
-        if (LightmapResolutionWidgets.StatusOutput.IsValid())
-        {
-            LightmapResolutionWidgets.StatusOutput->SetText(FText::FromString(State.StatusText));
-        }
-        if (LightmapResolutionWidgets.DetailOutput.IsValid())
-        {
-            LightmapResolutionWidgets.DetailOutput->SetText(FText::FromString(State.DetailText));
-        }
-
-        LightmapResolutionWidgets.RowItems = State.Rows;
-        if (LightmapResolutionWidgets.RowsListView.IsValid())
-        {
-            LightmapResolutionWidgets.RowsListView->RequestListRefresh();
-
-            bUpdatingLightmapSelection = true;
-            LightmapResolutionWidgets.RowsListView->ClearSelection();
-            for (const FLightmapResolutionRowPtr &Row : LightmapResolutionWidgets.RowItems)
-            {
-                if (Row.IsValid() && State.SelectedRowKeys.Contains(Row->Key))
-                {
-                    LightmapResolutionWidgets.RowsListView->SetItemSelection(Row, true, ESelectInfo::Direct);
-                }
-            }
-            bUpdatingLightmapSelection = false;
-        }
+        ToolStringBindings.Remove(TabId);
+        ToolBoolBindings.Remove(TabId);
+        ToolStateValues.Remove(TabId);
+        ToolEditableTextWidgets.Remove(TabId);
+        ToolCheckBoxWidgets.Remove(TabId);
+        ToolComboBoxWidgets.Remove(TabId);
+        ToolTextBlockWidgets.Remove(TabId);
+        ToolMultiLineTextWidgets.Remove(TabId);
+        ToolProgressBarWidgets.Remove(TabId);
+        ToolStateTableWidgets.Remove(TabId);
     }
 
-    static void ExecutePython(const FString &Command, const FName &TabName);
-
-    static FStaticMeshPipelineState LoadStaticMeshPipelineState()
+    static TSharedRef<SWidget> BuildSlotWidget(const TSharedPtr<FJsonObject> &SlotObject, const FName &TabId)
     {
-        FStaticMeshPipelineState State;
-        TSharedPtr<FJsonObject> RootObject;
-        if (!LoadJsonObjectFromFile(GetStaticMeshPipelineStatePath(), RootObject))
-        {
-            State.StatusText = LoadStatusText(StaticMeshPipelineTabName);
-            return State;
-        }
-
-        RootObject->TryGetBoolField(TEXT("risks_only"), State.bRisksOnly);
-        RootObject->TryGetStringField(TEXT("sort_column"), State.SortColumn);
-        RootObject->TryGetStringField(TEXT("sort_direction"), State.SortDirection);
-        RootObject->TryGetStringField(TEXT("export_source"), State.ExportSource);
-        RootObject->TryGetStringField(TEXT("export_destination"), State.ExportDestination);
-        RootObject->TryGetStringField(TEXT("import_source"), State.ImportSource);
-        RootObject->TryGetStringField(TEXT("import_destination"), State.ImportDestination);
-        RootObject->TryGetStringField(TEXT("progress_text"), State.ProgressText);
-        RootObject->TryGetStringField(TEXT("status_text"), State.StatusText);
-        RootObject->TryGetStringField(TEXT("detail_text"), State.DetailText);
-
-        const TArray<TSharedPtr<FJsonValue>> *SelectedRowKeys = nullptr;
-        if (RootObject->TryGetArrayField(TEXT("selected_row_keys"), SelectedRowKeys) && SelectedRowKeys != nullptr)
-        {
-            for (const TSharedPtr<FJsonValue> &SelectedValue : *SelectedRowKeys)
-            {
-                State.SelectedRowKeys.Add(SelectedValue->AsString());
-            }
-        }
-
-        const TArray<TSharedPtr<FJsonValue>> *Rows = nullptr;
-        if (RootObject->TryGetArrayField(TEXT("rows"), Rows) && Rows != nullptr)
-        {
-            for (const TSharedPtr<FJsonValue> &RowValue : *Rows)
-            {
-                const TSharedPtr<FJsonObject> RowObject = RowValue->AsObject();
-                if (!RowObject.IsValid())
-                {
-                    continue;
-                }
-
-                FStaticMeshPipelineRowPtr Row = MakeShared<FStaticMeshPipelineRowData>();
-                RowObject->TryGetStringField(TEXT("key"), Row->Key);
-                RowObject->TryGetStringField(TEXT("asset"), Row->Asset);
-                RowObject->TryGetStringField(TEXT("action"), Row->Action);
-                RowObject->TryGetStringField(TEXT("result"), Row->Result);
-                RowObject->TryGetStringField(TEXT("overlap"), Row->Overlap);
-                RowObject->TryGetStringField(TEXT("wrapping"), Row->Wrapping);
-                State.Rows.Add(Row);
-            }
-        }
-
-        double ProgressPercent = 0.0;
-        if (RootObject->TryGetNumberField(TEXT("progress_percent"), ProgressPercent))
-        {
-            State.ProgressPercent = (float)ProgressPercent;
-        }
-
-        return State;
-    }
-
-    static void InitializeStaticMeshPipelineOptions()
-    {
-        if (StaticMeshPipelineWidgets.SortColumnOptions.Num() == 0)
-        {
-            StaticMeshPipelineWidgets.SortColumnOptions = {
-                MakeShared<FString>(TEXT("Asset")),
-                MakeShared<FString>(TEXT("Action")),
-                MakeShared<FString>(TEXT("Result")),
-                MakeShared<FString>(TEXT("Overlap")),
-                MakeShared<FString>(TEXT("Wrapping"))};
-        }
-
-        if (StaticMeshPipelineWidgets.SortDirectionOptions.Num() == 0)
-        {
-            StaticMeshPipelineWidgets.SortDirectionOptions = {
-                MakeShared<FString>(TEXT("Asc")),
-                MakeShared<FString>(TEXT("Desc"))};
-        }
-
-        if (!StaticMeshPipelineWidgets.SelectedSortColumn.IsValid())
-        {
-            StaticMeshPipelineWidgets.SelectedSortColumn = FindOption(StaticMeshPipelineWidgets.SortColumnOptions, TEXT("Result"));
-        }
-        if (!StaticMeshPipelineWidgets.SelectedSortDirection.IsValid())
-        {
-            StaticMeshPipelineWidgets.SelectedSortDirection = FindOption(StaticMeshPipelineWidgets.SortDirectionOptions, TEXT("Desc"));
-        }
-    }
-
-    static FString GetSelectedStaticMeshPipelineSortColumn()
-    {
-        return StaticMeshPipelineWidgets.SelectedSortColumn.IsValid() ? *StaticMeshPipelineWidgets.SelectedSortColumn : TEXT("Result");
-    }
-
-    static FString GetSelectedStaticMeshPipelineSortDirection()
-    {
-        return StaticMeshPipelineWidgets.SelectedSortDirection.IsValid() ? *StaticMeshPipelineWidgets.SelectedSortDirection : TEXT("Desc");
-    }
-
-    static FString GetStaticMeshPipelineExportSource()
-    {
-        return StaticMeshPipelineWidgets.ExportSourceInput.IsValid() ? StaticMeshPipelineWidgets.ExportSourceInput->GetText().ToString().TrimStartAndEnd() : TEXT("/Game");
-    }
-
-    static FString GetStaticMeshPipelineExportDestination()
-    {
-        return StaticMeshPipelineWidgets.ExportDestinationInput.IsValid() ? StaticMeshPipelineWidgets.ExportDestinationInput->GetText().ToString().TrimStartAndEnd() : FPaths::ProjectDir();
-    }
-
-    static FString GetStaticMeshPipelineImportSource()
-    {
-        return StaticMeshPipelineWidgets.ImportSourceInput.IsValid() ? StaticMeshPipelineWidgets.ImportSourceInput->GetText().ToString().TrimStartAndEnd() : FPaths::ProjectDir();
-    }
-
-    static FString GetStaticMeshPipelineImportDestination()
-    {
-        return StaticMeshPipelineWidgets.ImportDestinationInput.IsValid() ? StaticMeshPipelineWidgets.ImportDestinationInput->GetText().ToString().TrimStartAndEnd() : TEXT("/Game");
-    }
-
-    static bool IsStaticMeshPipelineRisksOnlyChecked()
-    {
-        return StaticMeshPipelineWidgets.RisksOnlyCheck.IsValid() && StaticMeshPipelineWidgets.RisksOnlyCheck->IsChecked();
-    }
-
-    static FString BuildStaticMeshPipelinePythonCommand(const FString &ActionSuffix)
-    {
-        return FString::Printf(
-            TEXT("import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.set_paths('%s', '%s', '%s', '%s'); tool.set_risks_only(%s); tool.set_sort('%s', '%s'); %s"),
-            *EscapePythonString(GetStaticMeshPipelineExportSource()),
-            *EscapePythonString(GetStaticMeshPipelineExportDestination()),
-            *EscapePythonString(GetStaticMeshPipelineImportSource()),
-            *EscapePythonString(GetStaticMeshPipelineImportDestination()),
-            *ToPythonBool(IsStaticMeshPipelineRisksOnlyChecked()),
-            *GetSelectedStaticMeshPipelineSortColumn(),
-            *GetSelectedStaticMeshPipelineSortDirection(),
-            *ActionSuffix);
-    }
-
-    static void RefreshStaticMeshPipelineWidgets()
-    {
-        const FStaticMeshPipelineState State = LoadStaticMeshPipelineState();
-
-        if (StaticMeshPipelineWidgets.ExportSourceInput.IsValid())
-        {
-            StaticMeshPipelineWidgets.ExportSourceInput->SetText(FText::FromString(State.ExportSource));
-        }
-        if (StaticMeshPipelineWidgets.ExportDestinationInput.IsValid())
-        {
-            StaticMeshPipelineWidgets.ExportDestinationInput->SetText(FText::FromString(State.ExportDestination));
-        }
-        if (StaticMeshPipelineWidgets.ImportSourceInput.IsValid())
-        {
-            StaticMeshPipelineWidgets.ImportSourceInput->SetText(FText::FromString(State.ImportSource));
-        }
-        if (StaticMeshPipelineWidgets.ImportDestinationInput.IsValid())
-        {
-            StaticMeshPipelineWidgets.ImportDestinationInput->SetText(FText::FromString(State.ImportDestination));
-        }
-        if (StaticMeshPipelineWidgets.RisksOnlyCheck.IsValid())
-        {
-            StaticMeshPipelineWidgets.RisksOnlyCheck->SetIsChecked(ToCheckBoxState(State.bRisksOnly));
-        }
-        if (StaticMeshPipelineWidgets.SortColumnCombo.IsValid())
-        {
-            StaticMeshPipelineWidgets.SelectedSortColumn = FindOption(StaticMeshPipelineWidgets.SortColumnOptions, State.SortColumn);
-            if (StaticMeshPipelineWidgets.SelectedSortColumn.IsValid())
-            {
-                StaticMeshPipelineWidgets.SortColumnCombo->SetSelectedItem(StaticMeshPipelineWidgets.SelectedSortColumn);
-            }
-        }
-        if (StaticMeshPipelineWidgets.SortDirectionCombo.IsValid())
-        {
-            StaticMeshPipelineWidgets.SelectedSortDirection = FindOption(StaticMeshPipelineWidgets.SortDirectionOptions, State.SortDirection);
-            if (StaticMeshPipelineWidgets.SelectedSortDirection.IsValid())
-            {
-                StaticMeshPipelineWidgets.SortDirectionCombo->SetSelectedItem(StaticMeshPipelineWidgets.SelectedSortDirection);
-            }
-        }
-        if (StaticMeshPipelineWidgets.ProgressText.IsValid())
-        {
-            StaticMeshPipelineWidgets.ProgressText->SetText(FText::FromString(State.ProgressText));
-        }
-        if (StaticMeshPipelineWidgets.ProgressBar.IsValid())
-        {
-            StaticMeshPipelineWidgets.ProgressBar->SetPercent(FMath::Clamp(State.ProgressPercent, 0.0f, 1.0f));
-        }
-        if (StaticMeshPipelineWidgets.StatusOutput.IsValid())
-        {
-            StaticMeshPipelineWidgets.StatusOutput->SetText(FText::FromString(State.StatusText));
-        }
-        if (StaticMeshPipelineWidgets.DetailOutput.IsValid())
-        {
-            StaticMeshPipelineWidgets.DetailOutput->SetText(FText::FromString(State.DetailText));
-        }
-
-        StaticMeshPipelineWidgets.RowItems = State.Rows;
-        if (StaticMeshPipelineWidgets.RowsListView.IsValid())
-        {
-            StaticMeshPipelineWidgets.RowsListView->RequestListRefresh();
-
-            bUpdatingStaticMeshPipelineSelection = true;
-            StaticMeshPipelineWidgets.RowsListView->ClearSelection();
-            for (const FStaticMeshPipelineRowPtr &Row : StaticMeshPipelineWidgets.RowItems)
-            {
-                if (Row.IsValid() && State.SelectedRowKeys.Contains(Row->Key))
-                {
-                    StaticMeshPipelineWidgets.RowsListView->SetItemSelection(Row, true, ESelectInfo::Direct);
-                }
-            }
-            bUpdatingStaticMeshPipelineSelection = false;
-        }
-    }
-
-    static void SyncSelectedStaticMeshPipelineRowsToPython()
-    {
-        if (!StaticMeshPipelineWidgets.RowsListView.IsValid() || bUpdatingStaticMeshPipelineSelection)
-        {
-            return;
-        }
-
-        TArray<FStaticMeshPipelineRowPtr> SelectedItems = StaticMeshPipelineWidgets.RowsListView->GetSelectedItems();
-        TArray<FString> SelectedKeys;
-        for (const FStaticMeshPipelineRowPtr &Item : SelectedItems)
-        {
-            if (Item.IsValid() && !Item->Key.IsEmpty())
-            {
-                SelectedKeys.Add(Item->Key);
-            }
-        }
-
-        ExecutePython(
-            FString::Printf(
-                TEXT("import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.set_selected_rows(%s)"),
-                *BuildPythonStringListLiteral(SelectedKeys)),
-            StaticMeshPipelineTabName);
-    }
-
-    static void ExecutePython(const FString &Command, const FName &TabName);
-
-    static void SyncSelectedLightmapRowsToPython()
-    {
-        if (!LightmapResolutionWidgets.RowsListView.IsValid() || bUpdatingLightmapSelection)
-        {
-            return;
-        }
-
-        TArray<FLightmapResolutionRowPtr> SelectedItems = LightmapResolutionWidgets.RowsListView->GetSelectedItems();
-        TArray<FString> SelectedKeys;
-        for (const FLightmapResolutionRowPtr &Item : SelectedItems)
-        {
-            if (Item.IsValid() && !Item->Key.IsEmpty())
-            {
-                SelectedKeys.Add(Item->Key);
-            }
-        }
-
-        ExecutePython(
-            FString::Printf(
-                TEXT("import PythonEditorUtility.LightmapResolutionTool as tool; tool.set_selected_rows(%s)"),
-                *BuildPythonStringListLiteral(SelectedKeys)),
-            LightmapResolutionTabName);
-    }
-
-    static void ExecuteRawPythonCommand(const FString &Command)
-    {
-        if (Command.IsEmpty())
-        {
-            return;
-        }
-
-        EnsurePythonSearchPath();
-
-        if (IPythonScriptPlugin *PythonPlugin = IPythonScriptPlugin::Get())
-        {
-            PythonPlugin->ExecPythonCommand(*Command);
-        }
-    }
-
-    static void SyncWidgetStateFromPython(const FName &TabName)
-    {
-        ExecuteRawPythonCommand(GetRefreshPythonCommand(TabName));
-
-        if (TabName == LightmapResolutionTabName)
-        {
-            RefreshLightmapResolutionWidgets();
-        }
-        else if (TabName == StaticMeshPipelineTabName)
-        {
-            RefreshStaticMeshPipelineWidgets();
-        }
-        else
-        {
-            RefreshOutputTextBox(TabName);
-        }
-    }
-
-    static FMargin ParsePadding(const TArray<TSharedPtr<FJsonValue>> *PaddingValues)
-    {
-        if (PaddingValues == nullptr)
-        {
-            return FMargin(0.0f);
-        }
-
-        if (PaddingValues->Num() == 2)
-        {
-            return FMargin((float)(*PaddingValues)[0]->AsNumber(), (float)(*PaddingValues)[1]->AsNumber());
-        }
-
-        if (PaddingValues->Num() != 4)
-        {
-            return FMargin(0.0f);
-        }
-
-        return FMargin(
-            (float)(*PaddingValues)[0]->AsNumber(),
-            (float)(*PaddingValues)[1]->AsNumber(),
-            (float)(*PaddingValues)[2]->AsNumber(),
-            (float)(*PaddingValues)[3]->AsNumber());
-    }
-
-    static TSharedPtr<FJsonObject> GetFirstChildObject(const TSharedPtr<FJsonObject> &Object, const TSet<FString> &ExcludedFields)
-    {
-        for (const TPair<FString, TSharedPtr<FJsonValue>> &Pair : Object->Values)
-        {
-            if (ExcludedFields.Contains(Pair.Key))
-            {
-                continue;
-            }
-
-            if (Pair.Value.IsValid() && Pair.Value->Type == EJson::Object)
-            {
-                return Pair.Value->AsObject();
-            }
-        }
-
-        return nullptr;
-    }
-
-    static FString GetFirstChildWidgetType(const TSharedPtr<FJsonObject> &Object, const TSet<FString> &ExcludedFields)
-    {
-        for (const TPair<FString, TSharedPtr<FJsonValue>> &Pair : Object->Values)
-        {
-            if (ExcludedFields.Contains(Pair.Key))
-            {
-                continue;
-            }
-
-            if (Pair.Value.IsValid() && Pair.Value->Type == EJson::Object)
-            {
-                return Pair.Key;
-            }
-        }
-
-        return FString();
-    }
-
-    static bool HandlePeuCommand(const FString &Command)
-    {
-        if (Command.Equals(TEXT("PEU:OpenBuildLighting"), ESearchCase::CaseSensitive))
-        {
-            FGlobalTabmanager::Get()->TryInvokeTab(BuildLightingTabName);
-            SyncWidgetStateFromPython(BuildLightingTabName);
-            return true;
-        }
-
-        if (Command.Equals(TEXT("PEU:OpenLightmapResolution"), ESearchCase::CaseSensitive))
-        {
-            FGlobalTabmanager::Get()->TryInvokeTab(LightmapResolutionTabName);
-            SyncWidgetStateFromPython(LightmapResolutionTabName);
-            return true;
-        }
-
-        if (Command.Equals(TEXT("PEU:OpenStaticMeshPipeline"), ESearchCase::CaseSensitive))
-        {
-            FGlobalTabmanager::Get()->TryInvokeTab(StaticMeshPipelineTabName);
-            SyncWidgetStateFromPython(StaticMeshPipelineTabName);
-            return true;
-        }
-
-        return false;
-    }
-
-    static void ExecutePython(const FString &Command, const FName &TabName)
-    {
-        if (Command.IsEmpty())
-        {
-            return;
-        }
-
-        if (HandlePeuCommand(Command))
-        {
-            return;
-        }
-
-        ExecuteRawPythonCommand(Command);
-
-        if (TabName == LightmapResolutionTabName)
-        {
-            RefreshLightmapResolutionWidgets();
-        }
-        else if (TabName == StaticMeshPipelineTabName)
-        {
-            RefreshStaticMeshPipelineWidgets();
-        }
-        else
-        {
-            RefreshOutputTextBox(TabName);
-        }
-    }
-
-    static TSharedRef<SWidget> BuildWidgetFromDefinition(const FString &WidgetType, const TSharedPtr<FJsonObject> &Definition, const FName &TabName);
-
-    static TSharedRef<SWidget> BuildSlotWidget(const TSharedPtr<FJsonObject> &SlotObject, const FName &TabName)
-    {
-        const TSet<FString> ExcludedFields = {TEXT("AutoHeight"), TEXT("FillHeight"), TEXT("Column_Row")};
+        const TSet<FString> ExcludedFields = {TEXT("AutoHeight"), TEXT("FillHeight"), TEXT("AutoWidth"), TEXT("FillWidth"), TEXT("Padding"), TEXT("Column_Row")};
         const FString ChildType = GetFirstChildWidgetType(SlotObject, ExcludedFields);
         const TSharedPtr<FJsonObject> ChildObject = GetFirstChildObject(SlotObject, ExcludedFields);
         if (!ChildObject.IsValid() || ChildType.IsEmpty())
         {
             return SNew(STextBlock).Text(FText::FromString(TEXT("Unsupported slot")));
         }
-
-        return BuildWidgetFromDefinition(ChildType, ChildObject, TabName);
+        return BuildWidgetFromDefinition(ChildType, ChildObject, TabId);
     }
 
-    static TSharedRef<SWidget> BuildVerticalBox(const TSharedPtr<FJsonObject> &Definition, const FName &TabName)
+    static TSharedRef<SWidget> BuildVerticalBox(const TSharedPtr<FJsonObject> &Definition, const FName &TabId)
     {
         TSharedRef<SVerticalBox> VerticalBox = SNew(SVerticalBox);
         const TArray<TSharedPtr<FJsonValue>> *Slots = nullptr;
@@ -897,35 +1166,245 @@ namespace PythonEditorUtility
                 continue;
             }
 
-            TSharedRef<SWidget> ChildWidget = BuildSlotWidget(SlotObject, TabName);
-            if (SlotObject->HasField(TEXT("AutoHeight")))
+            TSharedRef<SWidget> ChildWidget = BuildSlotWidget(SlotObject, TabId);
+
+            const TArray<TSharedPtr<FJsonValue>> *SlotPaddingValues = nullptr;
+            FMargin SlotPadding(0.0f);
+            if (SlotObject->TryGetArrayField(TEXT("Padding"), SlotPaddingValues))
             {
-                VerticalBox->AddSlot()
-                    .AutoHeight()
-                        [ChildWidget];
+                SlotPadding = ParsePadding(SlotPaddingValues);
+            }
+
+            double FillHeight = 0.0;
+            if (SlotObject->TryGetNumberField(TEXT("FillHeight"), FillHeight))
+            {
+                VerticalBox->AddSlot().FillHeight((float)FillHeight).Padding(SlotPadding)[ChildWidget];
             }
             else
             {
-                double FillHeight = 0.0;
-                if (SlotObject->TryGetNumberField(TEXT("FillHeight"), FillHeight))
-                {
-                    VerticalBox->AddSlot()
-                        .FillHeight((float)FillHeight)
-                            [ChildWidget];
-                }
-                else
-                {
-                    VerticalBox->AddSlot()
-                        .AutoHeight()
-                            [ChildWidget];
-                }
+                VerticalBox->AddSlot().AutoHeight().Padding(SlotPadding)[ChildWidget];
             }
         }
 
         return VerticalBox;
     }
 
-    static TSharedRef<SWidget> BuildBorder(const TSharedPtr<FJsonObject> &Definition, const FName &TabName)
+    static TSharedRef<SWidget> BuildHorizontalBox(const TSharedPtr<FJsonObject> &Definition, const FName &TabId)
+    {
+        TSharedRef<SHorizontalBox> HorizontalBox = SNew(SHorizontalBox);
+        const TArray<TSharedPtr<FJsonValue>> *Slots = nullptr;
+        if (!Definition->TryGetArrayField(TEXT("Slots"), Slots) || Slots == nullptr)
+        {
+            return HorizontalBox;
+        }
+
+        for (const TSharedPtr<FJsonValue> &SlotValue : *Slots)
+        {
+            const TSharedPtr<FJsonObject> SlotObject = SlotValue->AsObject();
+            if (!SlotObject.IsValid())
+            {
+                continue;
+            }
+
+            TSharedRef<SWidget> ChildWidget = BuildSlotWidget(SlotObject, TabId);
+
+            const TArray<TSharedPtr<FJsonValue>> *SlotPaddingValues = nullptr;
+            FMargin SlotPadding(0.0f);
+            if (SlotObject->TryGetArrayField(TEXT("Padding"), SlotPaddingValues))
+            {
+                SlotPadding = ParsePadding(SlotPaddingValues);
+            }
+
+            double FillWidth = 0.0;
+            if (SlotObject->TryGetNumberField(TEXT("FillWidth"), FillWidth))
+            {
+                HorizontalBox->AddSlot().FillWidth((float)FillWidth).Padding(SlotPadding)[ChildWidget];
+            }
+            else
+            {
+                HorizontalBox->AddSlot().AutoWidth().Padding(SlotPadding)[ChildWidget];
+            }
+        }
+
+        return HorizontalBox;
+    }
+
+    static TSharedRef<SWidget> BuildScrollBox(const TSharedPtr<FJsonObject> &Definition, const FName &TabId)
+    {
+        TSharedRef<SScrollBox> ScrollBox = SNew(SScrollBox);
+        const TArray<TSharedPtr<FJsonValue>> *Slots = nullptr;
+        if (!Definition->TryGetArrayField(TEXT("Slots"), Slots) || Slots == nullptr)
+        {
+            return ScrollBox;
+        }
+
+        for (const TSharedPtr<FJsonValue> &SlotValue : *Slots)
+        {
+            const TSharedPtr<FJsonObject> SlotObject = SlotValue->AsObject();
+            if (!SlotObject.IsValid())
+            {
+                continue;
+            }
+
+            ScrollBox->AddSlot()[BuildSlotWidget(SlotObject, TabId)];
+        }
+
+        return ScrollBox;
+    }
+
+    static TSharedRef<SWidget> BuildSplitter(const TSharedPtr<FJsonObject> &Definition, const FName &TabId)
+    {
+        TSharedRef<SSplitter> Splitter = SNew(SSplitter);
+
+        FString Orientation;
+        if (Definition->TryGetStringField(TEXT("Orientation"), Orientation) && Orientation.Equals(TEXT("Vertical"), ESearchCase::IgnoreCase))
+        {
+            Splitter->SetOrientation(Orient_Vertical);
+        }
+        else
+        {
+            Splitter->SetOrientation(Orient_Horizontal);
+        }
+
+        const TArray<TSharedPtr<FJsonValue>> *Slots = nullptr;
+        if (!Definition->TryGetArrayField(TEXT("Slots"), Slots) || Slots == nullptr)
+        {
+            return Splitter;
+        }
+
+        for (const TSharedPtr<FJsonValue> &SlotValue : *Slots)
+        {
+            const TSharedPtr<FJsonObject> SlotObject = SlotValue->AsObject();
+            if (!SlotObject.IsValid())
+            {
+                continue;
+            }
+
+            double SizeValue = 1.0;
+            SlotObject->TryGetNumberField(TEXT("Value"), SizeValue);
+            Splitter->AddSlot()
+                .Value((float)SizeValue)
+                    [BuildSlotWidget(SlotObject, TabId)];
+        }
+
+        return Splitter;
+    }
+
+    static TSharedRef<SWidget> BuildStateTable(const TSharedPtr<FJsonObject> &Definition, const FName &TabId)
+    {
+        FString RowsStateKey;
+        FString SelectedKeysStateKey;
+        FString OnSelectionChanged;
+        FString SelectionMode;
+        Definition->TryGetStringField(TEXT("RowsStateKey"), RowsStateKey);
+        Definition->TryGetStringField(TEXT("SelectedKeysStateKey"), SelectedKeysStateKey);
+        Definition->TryGetStringField(TEXT("OnSelectionChanged"), OnSelectionChanged);
+        Definition->TryGetStringField(TEXT("SelectionMode"), SelectionMode);
+
+        TSharedPtr<FStateTableWidgetBinding> Binding = MakeShared<FStateTableWidgetBinding>();
+        Binding->RowsStateKey = GetDefinitionStateKey(Definition, RowsStateKey);
+        Binding->SelectedKeysStateKey = GetDefinitionStateKey(Definition, SelectedKeysStateKey);
+        Binding->OnSelectionChanged = OnSelectionChanged;
+        Binding->bAllowMultiSelect = SelectionMode.Equals(TEXT("Multi"), ESearchCase::IgnoreCase);
+
+        TSharedRef<SHeaderRow> HeaderRow = SNew(SHeaderRow);
+        TSharedPtr<FStateTableColumnFieldMap> ColumnToField = MakeShared<FStateTableColumnFieldMap>();
+
+        const TArray<TSharedPtr<FJsonValue>> *Columns = nullptr;
+        if (Definition->TryGetArrayField(TEXT("Columns"), Columns) && Columns != nullptr)
+        {
+            for (const TSharedPtr<FJsonValue> &ColumnValue : *Columns)
+            {
+                const TSharedPtr<FJsonObject> ColumnObject = ColumnValue->AsObject();
+                if (!ColumnObject.IsValid())
+                {
+                    continue;
+                }
+
+                FStateTableColumnDefinition Column;
+                ColumnObject->TryGetStringField(TEXT("Id"), Column.Id);
+                ColumnObject->TryGetStringField(TEXT("Title"), Column.Title);
+                ColumnObject->TryGetStringField(TEXT("Field"), Column.Field);
+                double FillWidth = 1.0;
+                if (ColumnObject->TryGetNumberField(TEXT("FillWidth"), FillWidth))
+                {
+                    Column.FillWidth = (float)FillWidth;
+                }
+
+                if (Column.Id.IsEmpty())
+                {
+                    Column.Id = Column.Field;
+                }
+                if (Column.Title.IsEmpty())
+                {
+                    Column.Title = Column.Id;
+                }
+
+                Binding->Columns.Add(Column);
+                ColumnToField->Add(FName(*Column.Id), NormalizeStateLookupKey(Column.Field));
+                HeaderRow->AddColumn(
+                    SHeaderRow::Column(FName(*Column.Id))
+                        .DefaultLabel(FText::FromString(Column.Title))
+                        .FillWidth(Column.FillWidth));
+            }
+        }
+
+        TSharedPtr<FStateTableListView> TableWidget;
+        SAssignNew(TableWidget, FStateTableListView)
+            .ListItemsSource(&Binding->RowItems)
+            .SelectionMode(Binding->bAllowMultiSelect ? ESelectionMode::Multi : ESelectionMode::Single)
+            .HeaderRow(HeaderRow)
+            .OnGenerateRow_Lambda([ColumnToField](FStateTableRowPtr RowItem, const TSharedRef<STableViewBase> &OwnerTable)
+                                  { return SNew(SStateTableRow, OwnerTable)
+                                        .RowItem(RowItem)
+                                        .ColumnToField(ColumnToField); })
+            .OnSelectionChanged_Lambda([Binding, TabId](FStateTableRowPtr, ESelectInfo::Type SelectInfo)
+                                       {
+                if (TabsRefreshingBindings.Contains(TabId) || !Binding.IsValid() || SelectInfo == ESelectInfo::Direct)
+                {
+                    return;
+                }
+
+                if (const TSharedPtr<FStateTableListView> Widget = Binding->Widget.Pin())
+                {
+                    TArray<FStateTableRowPtr> SelectedRows;
+                    Widget->GetSelectedItems(SelectedRows);
+
+                    TArray<FString> SelectedKeys;
+                    for (const FStateTableRowPtr &SelectedRow : SelectedRows)
+                    {
+                        if (SelectedRow.IsValid())
+                        {
+                            AppendUniqueString(SelectedKeys, SelectedRow->Key);
+                        }
+                    }
+
+                    const TArray<FString> ExistingSelectedKeys =
+                        GetJsonStringArray(FindToolStateValue(TabId, Binding->SelectedKeysStateKey));
+
+                    if (AreStringArraysEquivalent(SelectedKeys, ExistingSelectedKeys))
+                    {
+                        return;
+                    }
+
+                    if (SelectedKeys.Num() == 0 && ExistingSelectedKeys.Num() > 0)
+                    {
+                        return;
+                    }
+
+                    if (!Binding->OnSelectionChanged.IsEmpty())
+                    {
+                        const FString FirstKey = SelectedKeys.Num() > 0 ? SelectedKeys[0] : FString();
+                        ExecutePython(ResolveCommandTemplate(Binding->OnSelectionChanged, TabId, nullptr, nullptr, &SelectedKeys, &FirstKey), TabId);
+                    }
+                } });
+
+        Binding->Widget = TableWidget;
+        ToolStateTableWidgets.FindOrAdd(TabId).Add(Binding);
+        return TableWidget.ToSharedRef();
+    }
+
+    static TSharedRef<SWidget> BuildBorder(const TSharedPtr<FJsonObject> &Definition, const FName &TabId)
     {
         const TArray<TSharedPtr<FJsonValue>> *PaddingValues = nullptr;
         FMargin Padding(0.0f);
@@ -943,8 +1422,7 @@ namespace PythonEditorUtility
 
         if (!ChildContainer.IsValid())
         {
-            const TSet<FString> ExcludedFields = {TEXT("Padding")};
-            ChildContainer = GetFirstChildObject(Definition, ExcludedFields);
+            ChildContainer = GetFirstChildObject(Definition, {TEXT("Padding")});
         }
 
         const FString ChildType = ChildContainer.IsValid() ? GetFirstChildWidgetType(ChildContainer, {}) : FString();
@@ -952,10 +1430,10 @@ namespace PythonEditorUtility
 
         return SNew(SBorder)
             .Padding(Padding)
-                [ChildObject.IsValid() ? BuildWidgetFromDefinition(ChildType, ChildObject, TabName) : SNew(STextBlock).Text(FText::FromString(TEXT("Empty border")))];
+                [ChildObject.IsValid() ? BuildWidgetFromDefinition(ChildType, ChildObject, TabId) : SNew(STextBlock).Text(FText::FromString(TEXT("Empty border")))];
     }
 
-    static TSharedRef<SWidget> BuildUniformGrid(const TSharedPtr<FJsonObject> &Definition, const FName &TabName)
+    static TSharedRef<SWidget> BuildUniformGrid(const TSharedPtr<FJsonObject> &Definition, const FName &TabId)
     {
         TSharedRef<SUniformGridPanel> Grid = SNew(SUniformGridPanel);
         const TArray<TSharedPtr<FJsonValue>> *SlotPaddingValues = nullptr;
@@ -987,26 +1465,59 @@ namespace PythonEditorUtility
                 Row = (int32)(*ColumnRow)[1]->AsNumber();
             }
 
-            Grid->AddSlot(Column, Row)
-                [BuildSlotWidget(SlotObject, TabName)];
+            Grid->AddSlot(Column, Row)[BuildSlotWidget(SlotObject, TabId)];
         }
 
         return Grid;
     }
 
-    static TSharedRef<SWidget> BuildWidgetFromDefinition(const FString &WidgetType, const TSharedPtr<FJsonObject> &Definition, const FName &TabName)
+    static TSharedRef<SWidget> BuildWidgetFromDefinition(const FString &WidgetType, const TSharedPtr<FJsonObject> &Definition, const FName &TabId)
     {
         if (WidgetType == TEXT("SVerticalBox"))
         {
-            return BuildVerticalBox(Definition, TabName);
+            return BuildVerticalBox(Definition, TabId);
+        }
+        if (WidgetType == TEXT("SHorizontalBox"))
+        {
+            return BuildHorizontalBox(Definition, TabId);
+        }
+        if (WidgetType == TEXT("SSplitter"))
+        {
+            return BuildSplitter(Definition, TabId);
+        }
+        if (WidgetType == TEXT("SScrollBox"))
+        {
+            return BuildScrollBox(Definition, TabId);
         }
         if (WidgetType == TEXT("SBorder"))
         {
-            return BuildBorder(Definition, TabName);
+            return BuildBorder(Definition, TabId);
         }
         if (WidgetType == TEXT("STextBlock"))
         {
-            return SNew(STextBlock).Text(FText::FromString(Definition->GetStringField(TEXT("Text")))).AutoWrapText(true);
+            FString TextValue;
+            FString Format = TEXT("%Value%");
+            bool bAutoWrapText = true;
+            Definition->TryGetStringField(TEXT("Text"), TextValue);
+            Definition->TryGetStringField(TEXT("Format"), Format);
+            Definition->TryGetBoolField(TEXT("AutoWrapText"), bAutoWrapText);
+            const FString StateKey = GetDefinitionStateKey(Definition, FString());
+
+            TSharedPtr<STextBlock> TextWidget;
+            SAssignNew(TextWidget, STextBlock)
+                .Text(FText::FromString(TextValue))
+                .AutoWrapText(bAutoWrapText);
+
+            if (!StateKey.IsEmpty())
+            {
+                FTextBlockWidgetBinding Binding;
+                Binding.StateKey = StateKey;
+                Binding.Format = Format;
+                Binding.Widget = TextWidget;
+                ToolTextBlockWidgets.FindOrAdd(TabId).Add(Binding);
+            }
+
+            return TextWidget.ToSharedRef();
         }
         if (WidgetType == TEXT("SButton"))
         {
@@ -1014,37 +1525,260 @@ namespace PythonEditorUtility
             const FString OnClick = Definition->GetStringField(TEXT("OnClick"));
             return SNew(SButton)
                 .Text(FText::FromString(ButtonText))
-                .OnClicked_Lambda([OnClick, TabName]()
+                .OnClicked_Lambda([OnClick, TabId]()
                                   {
-                                      ExecutePython(OnClick, TabName);
-                                      return FReply::Handled(); });
+                    ExecutePython(OnClick, TabId);
+                    return FReply::Handled(); });
+        }
+        if (WidgetType == TEXT("SEditableTextBox"))
+        {
+            FString InitialText;
+            FString Aka;
+            FString HintText;
+            FString OnTextCommitted;
+            Definition->TryGetStringField(TEXT("Text"), InitialText);
+            Definition->TryGetStringField(TEXT("Aka"), Aka);
+            Definition->TryGetStringField(TEXT("HintText"), HintText);
+            Definition->TryGetStringField(TEXT("OnTextCommitted"), OnTextCommitted);
+            const FString BindingKey = NormalizeStateLookupKey(Aka);
+            const FString StateKey = GetDefinitionStateKey(Definition, Aka);
+            SetToolStringBinding(TabId, BindingKey, InitialText);
+
+            TSharedPtr<SEditableTextBox> EditableTextBox;
+            SAssignNew(EditableTextBox, SEditableTextBox)
+                .Text(FText::FromString(InitialText))
+                .HintText(FText::FromString(HintText))
+                .SelectAllTextWhenFocused(true)
+                .OnTextCommitted_Lambda([BindingKey, OnTextCommitted, TabId](const FText &NewText, ETextCommit::Type CommitType)
+                                        {
+                const FString TextValue = NewText.ToString();
+                const FString NormalizedBindingKey = NormalizeStateLookupKey(BindingKey);
+                if (CommitType == ETextCommit::OnCleared)
+                {
+                    if (TSet<FString>* PendingClearedCommits = ToolPendingClearedEditableCommits.Find(TabId))
+                    {
+                        if (PendingClearedCommits->Remove(NormalizedBindingKey) > 0)
+                        {
+                            UE_LOG(LogTemp, Log, TEXT("PythonEditorUtility skipping duplicate OnCleared commit tab=%s binding=%s value=%s"),
+                                *TabId.ToString(),
+                                *BindingKey,
+                                *TextValue);
+                            return;
+                        }
+                    }
+                }
+                else if (CommitType == ETextCommit::OnEnter)
+                {
+                    ToolPendingClearedEditableCommits.FindOrAdd(TabId).Add(NormalizedBindingKey);
+                }
+                else if (TSet<FString>* PendingClearedCommits = ToolPendingClearedEditableCommits.Find(TabId))
+                {
+                    PendingClearedCommits->Remove(NormalizedBindingKey);
+                }
+                SetToolStringBinding(TabId, BindingKey, TextValue);
+                SyncEditableTextWidgetBinding(TabId, BindingKey, TextValue);
+                UE_LOG(LogTemp, Log, TEXT("PythonEditorUtility OnTextCommitted tab=%s binding=%s value=%s commit=%s refreshing=%s"),
+                    *TabId.ToString(),
+                    *BindingKey,
+                    *TextValue,
+                    *TextCommitTypeToString(CommitType),
+                    TabsRefreshingBindings.Contains(TabId) ? TEXT("true") : TEXT("false"));
+                if (TabsRefreshingBindings.Contains(TabId))
+                {
+                    return;
+                }
+                if (!OnTextCommitted.IsEmpty())
+                {
+                    UE_LOG(LogTemp, Log, TEXT("PythonEditorUtility ExecutePython OnTextCommitted tab=%s binding=%s command=%s"),
+                        *TabId.ToString(),
+                        *BindingKey,
+                        *OnTextCommitted);
+                    ExecutePython(ResolveCommandTemplate(OnTextCommitted, TabId, &TextValue, nullptr), TabId);
+                } });
+
+            FEditableTextWidgetBinding Binding;
+            Binding.BindingKey = BindingKey;
+            Binding.StateKey = StateKey;
+            Binding.OnTextCommittedCmd = OnTextCommitted;
+            Binding.Widget = EditableTextBox;
+            ToolEditableTextWidgets.FindOrAdd(TabId).Add(Binding);
+            return EditableTextBox.ToSharedRef();
+        }
+        if (WidgetType == TEXT("SCheckBox"))
+        {
+            bool bInitiallyChecked = false;
+            FString Aka;
+            FString Label;
+            FString OnCheckStateChanged;
+            Definition->TryGetBoolField(TEXT("IsChecked"), bInitiallyChecked);
+            Definition->TryGetStringField(TEXT("Aka"), Aka);
+            Definition->TryGetStringField(TEXT("Text"), Label);
+            Definition->TryGetStringField(TEXT("OnCheckStateChanged"), OnCheckStateChanged);
+            const FString BindingKey = NormalizeStateLookupKey(Aka);
+            const FString StateKey = GetDefinitionStateKey(Definition, Aka);
+            SetToolBoolBinding(TabId, BindingKey, bInitiallyChecked);
+
+            TSharedPtr<SCheckBox> CheckBoxWidget;
+            SAssignNew(CheckBoxWidget, SCheckBox)
+                .IsChecked(bInitiallyChecked ? ECheckBoxState::Checked : ECheckBoxState::Unchecked)
+                .OnCheckStateChanged_Lambda([BindingKey, OnCheckStateChanged, TabId](ECheckBoxState NewState)
+                                            {
+                const bool bChecked = NewState == ECheckBoxState::Checked;
+                SetToolBoolBinding(TabId, BindingKey, bChecked);
+                if (TabsRefreshingBindings.Contains(TabId))
+                {
+                    return;
+                }
+                if (!OnCheckStateChanged.IsEmpty())
+                {
+                    ExecutePython(ResolveCommandTemplate(OnCheckStateChanged, TabId, nullptr, &bChecked), TabId);
+                } })
+                    [SNew(STextBlock).Text(FText::FromString(Label))];
+
+            FCheckBoxWidgetBinding Binding;
+            Binding.BindingKey = BindingKey;
+            Binding.StateKey = StateKey;
+            Binding.Widget = CheckBoxWidget;
+            ToolCheckBoxWidgets.FindOrAdd(TabId).Add(Binding);
+            return CheckBoxWidget.ToSharedRef();
+        }
+        if (WidgetType == TEXT("SComboBox"))
+        {
+            FString Aka;
+            FString SelectedValue;
+            FString OnSelectionChanged;
+            Definition->TryGetStringField(TEXT("Aka"), Aka);
+            Definition->TryGetStringField(TEXT("Selected"), SelectedValue);
+            Definition->TryGetStringField(TEXT("OnSelectionChanged"), OnSelectionChanged);
+            const FString BindingKey = NormalizeStateLookupKey(Aka);
+            const FString StateKey = GetDefinitionStateKey(Definition, Aka);
+
+            const TArray<TSharedPtr<FJsonValue>> *OptionValues = nullptr;
+            TSharedPtr<TArray<TSharedPtr<FString>>> Options = MakeShared<TArray<TSharedPtr<FString>>>();
+            if (Definition->TryGetArrayField(TEXT("Options"), OptionValues) && OptionValues != nullptr)
+            {
+                for (const TSharedPtr<FJsonValue> &OptionValue : *OptionValues)
+                {
+                    const FString OptionText = OptionValue->AsString();
+                    Options->Add(MakeShared<FString>(OptionText));
+                    if (SelectedValue.IsEmpty())
+                    {
+                        SelectedValue = OptionText;
+                    }
+                }
+            }
+
+            if (SelectedValue.IsEmpty() && Options.IsValid() && Options->Num() > 0)
+            {
+                SelectedValue = *(*Options)[0];
+            }
+
+            TSharedRef<FString> CurrentValue = MakeShared<FString>(SelectedValue);
+            SetToolStringBinding(TabId, BindingKey, *CurrentValue);
+
+            TSharedPtr<FString> InitiallySelectedItem;
+            for (const TSharedPtr<FString> &Option : *Options)
+            {
+                if (Option.IsValid() && *Option == *CurrentValue)
+                {
+                    InitiallySelectedItem = Option;
+                    break;
+                }
+            }
+
+            TSharedPtr<FStringComboBox> ComboBoxWidget;
+            SAssignNew(ComboBoxWidget, FStringComboBox)
+                .OptionsSource(Options.Get())
+                .InitiallySelectedItem(InitiallySelectedItem)
+                .OnGenerateWidget_Lambda([Options](TSharedPtr<FString> Item)
+                                         { return SNew(STextBlock).Text(FText::FromString(Item.IsValid() ? *Item : FString())); })
+                .OnSelectionChanged_Lambda([CurrentValue, BindingKey, OnSelectionChanged, TabId](TSharedPtr<FString> NewSelection, ESelectInfo::Type)
+                                           {
+                const FString SelectedText = NewSelection.IsValid() ? *NewSelection : FString();
+                *CurrentValue = SelectedText;
+                SetToolStringBinding(TabId, BindingKey, SelectedText);
+                if (TabsRefreshingBindings.Contains(TabId))
+                {
+                    return;
+                }
+                if (!OnSelectionChanged.IsEmpty())
+                {
+                    ExecutePython(ResolveCommandTemplate(OnSelectionChanged, TabId, &SelectedText, nullptr), TabId);
+                } })
+                    [SNew(STextBlock).Text_Lambda([CurrentValue]()
+                                                  { return FText::FromString(*CurrentValue); })];
+
+            FComboBoxWidgetBinding Binding;
+            Binding.BindingKey = BindingKey;
+            Binding.StateKey = StateKey;
+            Binding.Widget = ComboBoxWidget;
+            Binding.Options = Options;
+            Binding.CurrentValue = CurrentValue;
+            ToolComboBoxWidgets.FindOrAdd(TabId).Add(Binding);
+            return ComboBoxWidget.ToSharedRef();
         }
         if (WidgetType == TEXT("SMultiLineEditableTextBox"))
         {
             bool bReadOnly = false;
+            FString InitialText;
+            Definition->TryGetStringField(TEXT("Text"), InitialText);
             Definition->TryGetBoolField(TEXT("IsReadOnly"), bReadOnly);
-            TSharedPtr<SMultiLineEditableTextBox> &OutputTextBox = ToolOutputTextBoxes.FindOrAdd(TabName);
+            const FString StateKey = GetDefinitionStateKey(Definition, FString());
+
+            TSharedPtr<SMultiLineEditableTextBox> OutputTextBox;
             SAssignNew(OutputTextBox, SMultiLineEditableTextBox)
                 .IsReadOnly(bReadOnly)
                 .AlwaysShowScrollbars(true)
-                .Text(FText::FromString(LoadStatusText(TabName)));
+                .Text(FText::FromString(InitialText.IsEmpty() ? LoadStatusText(TabId) : InitialText));
+
+            FMultiLineTextWidgetBinding Binding;
+            Binding.StateKey = StateKey;
+            Binding.Widget = OutputTextBox;
+            ToolMultiLineTextWidgets.FindOrAdd(TabId).Add(Binding);
             return OutputTextBox.ToSharedRef();
+        }
+        if (WidgetType == TEXT("SProgressBar"))
+        {
+            double PercentValue = 0.0;
+            Definition->TryGetNumberField(TEXT("Percent"), PercentValue);
+            const FString StateKey = GetDefinitionStateKey(Definition, TEXT("Percent"));
+
+            TSharedPtr<SProgressBar> ProgressBarWidget;
+            SAssignNew(ProgressBarWidget, SProgressBar)
+                .Percent((float)PercentValue);
+
+            FProgressBarWidgetBinding Binding;
+            Binding.StateKey = StateKey;
+            Binding.Widget = ProgressBarWidget;
+            ToolProgressBarWidgets.FindOrAdd(TabId).Add(Binding);
+            return ProgressBarWidget.ToSharedRef();
+        }
+        if (WidgetType == TEXT("SStateTable"))
+        {
+            return BuildStateTable(Definition, TabId);
         }
         if (WidgetType == TEXT("SUniformGridPanel"))
         {
-            return BuildUniformGrid(Definition, TabName);
+            return BuildUniformGrid(Definition, TabId);
         }
 
         return SNew(STextBlock).Text(FText::FromString(FString::Printf(TEXT("Unsupported widget type: %s"), *WidgetType)));
     }
 
-    static TSharedRef<SWidget> BuildWidgetTreeFromJson(const FName &TabName)
+    static TSharedRef<SWidget> BuildWidgetTreeFromJson(const FName &TabId)
     {
-        TSharedPtr<FJsonObject> RootObject;
-        const FString JsonPath = GetUiJsonPath(TabName);
-        if (!LoadJsonObjectFromFile(JsonPath, RootObject))
+        ResetToolWidgetRegistry(TabId);
+
+        const FDiscoveredToolDefinition *Tool = FindToolByTabId(TabId);
+        if (Tool == nullptr)
         {
-            return SNew(STextBlock).Text(FText::FromString(FString::Printf(TEXT("Could not load JSON: %s"), *JsonPath)));
+            return SNew(STextBlock).Text(FText::FromString(TEXT("Unknown PythonEditorUtility tool.")));
+        }
+
+        TSharedPtr<FJsonObject> RootObject;
+        if (!LoadJsonObjectFromFile(Tool->JsonPath, RootObject))
+        {
+            return SNew(STextBlock).Text(FText::FromString(FString::Printf(TEXT("Could not load JSON: %s"), *Tool->JsonPath)));
         }
 
         const TSharedPtr<FJsonObject> *RootDefinition = nullptr;
@@ -1057,521 +1791,64 @@ namespace PythonEditorUtility
         {
             if (Pair.Value.IsValid() && Pair.Value->Type == EJson::Object)
             {
-                return BuildWidgetFromDefinition(Pair.Key, Pair.Value->AsObject(), TabName);
+                return BuildWidgetFromDefinition(Pair.Key, Pair.Value->AsObject(), TabId);
             }
         }
 
         return SNew(STextBlock).Text(FText::FromString(TEXT("No root widget found in UI definition.")));
     }
 
-    static void InitializeLightmapResolutionOptions()
+    static TArray<FDiscoveredToolDefinition> DiscoverToolDefinitions()
     {
-        if (LightmapResolutionWidgets.SortColumnOptions.Num() == 0)
+        TArray<FDiscoveredToolDefinition> Result;
+        const FString UiRoot = ResolveProjectPath(GetIntegrationSettings().UiRoot);
+        if (!IFileManager::Get().DirectoryExists(*UiRoot))
         {
-            LightmapResolutionWidgets.SortColumnOptions = {
-                MakeShared<FString>(TEXT("Level")),
-                MakeShared<FString>(TEXT("Actor")),
-                MakeShared<FString>(TEXT("Component")),
-                MakeShared<FString>(TEXT("Mesh")),
-                MakeShared<FString>(TEXT("Mobility")),
-                MakeShared<FString>(TEXT("Effective")),
-                MakeShared<FString>(TEXT("Asset")),
-                MakeShared<FString>(TEXT("Override"))};
+            return Result;
         }
 
-        if (LightmapResolutionWidgets.SortDirectionOptions.Num() == 0)
-        {
-            LightmapResolutionWidgets.SortDirectionOptions = {
-                MakeShared<FString>(TEXT("Asc")),
-                MakeShared<FString>(TEXT("Desc"))};
-        }
+        TArray<FString> JsonFiles;
+        IFileManager::Get().FindFiles(JsonFiles, *FPaths::Combine(UiRoot, TEXT("*.json")), true, false);
+        JsonFiles.Sort();
 
-        if (!LightmapResolutionWidgets.SelectedSortColumn.IsValid())
+        for (const FString &JsonFileName : JsonFiles)
         {
-            LightmapResolutionWidgets.SelectedSortColumn = LightmapResolutionWidgets.SortColumnOptions[0];
-        }
-        if (!LightmapResolutionWidgets.SelectedSortDirection.IsValid())
-        {
-            LightmapResolutionWidgets.SelectedSortDirection = LightmapResolutionWidgets.SortDirectionOptions[0];
-        }
-    }
-
-    static int32 GetLightmapResolutionValue()
-    {
-        int32 Resolution = 64;
-        if (LightmapResolutionWidgets.ResolutionInput.IsValid())
-        {
-            const FString RawValue = LightmapResolutionWidgets.ResolutionInput->GetText().ToString().TrimStartAndEnd();
-            if (!RawValue.IsEmpty())
+            const FString JsonPath = FPaths::Combine(UiRoot, JsonFileName);
+            TSharedPtr<FJsonObject> RootObject;
+            if (!LoadJsonObjectFromFile(JsonPath, RootObject))
             {
-                Resolution = FMath::Max(1, FCString::Atoi(*RawValue));
+                continue;
             }
+
+            FDiscoveredToolDefinition Tool;
+            Tool.ToolName = FPaths::GetBaseFilename(JsonFileName);
+            Tool.JsonPath = JsonPath;
+            Tool.TabLabel = Tool.ToolName;
+            Tool.TabLabel.RemoveFromEnd(TEXT("Tool"));
+            Tool.StatusFileName = MakeDefaultStatusFileName(Tool.ToolName);
+            Tool.StateFileName = MakeDefaultStateFileName(Tool.ToolName);
+            Tool.Tooltip = FString::Printf(TEXT("Open the %s tool."), *Tool.TabLabel);
+            RootObject->TryGetStringField(TEXT("TabLabel"), Tool.TabLabel);
+            RootObject->TryGetStringField(TEXT("StatusFile"), Tool.StatusFileName);
+            RootObject->TryGetStringField(TEXT("StateFile"), Tool.StateFileName);
+            RootObject->TryGetStringField(TEXT("Tooltip"), Tool.Tooltip);
+            RootObject->TryGetStringField(TEXT("InitPyCmd"), Tool.InitPyCmd);
+            Tool.TabId = MakeTabId(Tool.ToolName);
+            Tool.MenuEntryName = FName(*FString::Printf(TEXT("OpenPythonEditorUtility%s"), *Tool.ToolName));
+            Result.Add(Tool);
         }
 
-        return Resolution;
+        return Result;
     }
 
-    static FString GetSelectedSortColumn()
+    static void RefreshDiscoveredTools()
     {
-        return LightmapResolutionWidgets.SelectedSortColumn.IsValid() ? *LightmapResolutionWidgets.SelectedSortColumn : TEXT("Level");
-    }
-
-    static FString GetSelectedSortDirection()
-    {
-        return LightmapResolutionWidgets.SelectedSortDirection.IsValid() ? *LightmapResolutionWidgets.SelectedSortDirection : TEXT("Asc");
-    }
-
-    static bool IsOpenLevelOnlyChecked()
-    {
-        return LightmapResolutionWidgets.OpenLevelOnlyCheck.IsValid() && LightmapResolutionWidgets.OpenLevelOnlyCheck->IsChecked();
-    }
-
-    static bool IsOverrideOnlyChecked()
-    {
-        return LightmapResolutionWidgets.OverrideOnlyCheck.IsValid() && LightmapResolutionWidgets.OverrideOnlyCheck->IsChecked();
-    }
-
-    static FString BuildLightmapResolutionPythonCommand(const FString &ActionSuffix)
-    {
-        return FString::Printf(
-            TEXT("import PythonEditorUtility.LightmapResolutionTool as tool; tool.set_resolution(%d); tool.set_open_level_only(%s); tool.set_override_only(%s); tool.set_sort('%s', '%s'); %s"),
-            GetLightmapResolutionValue(),
-            *ToPythonBool(IsOpenLevelOnlyChecked()),
-            *ToPythonBool(IsOverrideOnlyChecked()),
-            *GetSelectedSortColumn(),
-            *GetSelectedSortDirection(),
-            *ActionSuffix);
-    }
-
-    static TSharedRef<SWidget> BuildLightmapResolutionToolbar()
-    {
-        InitializeLightmapResolutionOptions();
-
-        return SNew(SBorder)
-            .Padding(FMargin(8.0f, 6.0f, 8.0f, 6.0f))
-                [SNew(SHorizontalBox) + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)[SNew(SButton).Text(FText::FromString(TEXT("Refresh"))).OnClicked_Lambda([]()
-                                                                                                                                                                                   {
-                                                        ExecutePython(BuildLightmapResolutionPythonCommand(TEXT("tool.refresh_status()")), LightmapResolutionTabName);
-                                                        return FReply::Handled(); })] +
-                 SHorizontalBox::Slot()
-                     .AutoWidth()
-                     .Padding(0.0f, 0.0f, 6.0f, 0.0f)
-                         [SNew(SBox)
-                              .WidthOverride(56.0f)
-                                  [SAssignNew(LightmapResolutionWidgets.ResolutionInput, SEditableTextBox)
-                                       .Text(FText::FromString(TEXT("64")))
-                                       .OnTextCommitted_Lambda([](const FText &, ETextCommit::Type)
-                                                               { ExecutePython(BuildLightmapResolutionPythonCommand(TEXT("tool.refresh_status()")), LightmapResolutionTabName); })]] +
-                 SHorizontalBox::Slot()
-                     .AutoWidth()
-                     .Padding(0.0f, 0.0f, 6.0f, 0.0f)
-                         [SAssignNew(LightmapResolutionWidgets.OpenLevelOnlyCheck, SCheckBox)
-                              .OnCheckStateChanged_Lambda([](ECheckBoxState)
-                                                          { ExecutePython(BuildLightmapResolutionPythonCommand(TEXT("tool.refresh_status()")), LightmapResolutionTabName); })
-                                  [SNew(STextBlock).Text(FText::FromString(TEXT("Open Level Only")))]] +
-                 SHorizontalBox::Slot()
-                     .AutoWidth()
-                     .Padding(0.0f, 0.0f, 6.0f, 0.0f)
-                         [SAssignNew(LightmapResolutionWidgets.OverrideOnlyCheck, SCheckBox)
-                              .OnCheckStateChanged_Lambda([](ECheckBoxState)
-                                                          { ExecutePython(BuildLightmapResolutionPythonCommand(TEXT("tool.refresh_status()")), LightmapResolutionTabName); })
-                                  [SNew(STextBlock).Text(FText::FromString(TEXT("Override Only")))]] +
-                 SHorizontalBox::Slot()
-                     .AutoWidth()
-                     .Padding(0.0f, 0.0f, 6.0f, 0.0f)
-                         [SNew(SBox)
-                              .WidthOverride(130.0f)
-                                  [SAssignNew(LightmapResolutionWidgets.SortColumnCombo, SComboBox<TSharedPtr<FString>>)
-                                       .OptionsSource(&LightmapResolutionWidgets.SortColumnOptions)
-                                       .InitiallySelectedItem(LightmapResolutionWidgets.SelectedSortColumn)
-                                       .OnGenerateWidget_Lambda([](TSharedPtr<FString> Item)
-                                                                { return SNew(STextBlock).Text(FText::FromString(Item.IsValid() ? *Item : TEXT(""))); })
-                                       .OnSelectionChanged_Lambda([](TSharedPtr<FString> Item, ESelectInfo::Type)
-                                                                  {
-                                                                          LightmapResolutionWidgets.SelectedSortColumn = Item;
-                                                                          ExecutePython(BuildLightmapResolutionPythonCommand(TEXT("tool.refresh_status()")), LightmapResolutionTabName); })
-                                           [SNew(STextBlock)
-                                                .Text_Lambda([]()
-                                                             { return FText::FromString(GetSelectedSortColumn()); })]]] +
-                 SHorizontalBox::Slot()
-                     .AutoWidth()
-                     .Padding(0.0f, 0.0f, 6.0f, 0.0f)
-                         [SNew(SBox)
-                              .WidthOverride(80.0f)
-                                  [SAssignNew(LightmapResolutionWidgets.SortDirectionCombo, SComboBox<TSharedPtr<FString>>)
-                                       .OptionsSource(&LightmapResolutionWidgets.SortDirectionOptions)
-                                       .InitiallySelectedItem(LightmapResolutionWidgets.SelectedSortDirection)
-                                       .OnGenerateWidget_Lambda([](TSharedPtr<FString> Item)
-                                                                { return SNew(STextBlock).Text(FText::FromString(Item.IsValid() ? *Item : TEXT(""))); })
-                                       .OnSelectionChanged_Lambda([](TSharedPtr<FString> Item, ESelectInfo::Type)
-                                                                  {
-                                                                          LightmapResolutionWidgets.SelectedSortDirection = Item;
-                                                                          ExecutePython(BuildLightmapResolutionPythonCommand(TEXT("tool.refresh_status()")), LightmapResolutionTabName); })
-                                           [SNew(STextBlock)
-                                                .Text_Lambda([]()
-                                                             { return FText::FromString(GetSelectedSortDirection()); })]]] +
-                 SHorizontalBox::Slot()
-                     .AutoWidth()
-                     .Padding(0.0f, 0.0f, 6.0f, 0.0f)
-                         [SNew(SButton)
-                              .Text(FText::FromString(TEXT("Apply To Instance")))
-                              .OnClicked_Lambda([]()
-                                                {
-                                                        ExecutePython(BuildLightmapResolutionPythonCommand(TEXT("tool.apply_to_instance()")), LightmapResolutionTabName);
-                                                        return FReply::Handled(); })] +
-                 SHorizontalBox::Slot()
-                     .AutoWidth()
-                     .Padding(0.0f, 0.0f, 6.0f, 0.0f)
-                         [SNew(SButton)
-                              .Text(FText::FromString(TEXT("Clear Instance Override")))
-                              .OnClicked_Lambda([]()
-                                                {
-                                                        ExecutePython(BuildLightmapResolutionPythonCommand(TEXT("tool.clear_instance_override()")), LightmapResolutionTabName);
-                                                        return FReply::Handled(); })] +
-                 SHorizontalBox::Slot()
-                     .AutoWidth()
-                     .Padding(0.0f, 0.0f, 6.0f, 0.0f)
-                         [SNew(SButton)
-                              .Text(FText::FromString(TEXT("Apply To Asset")))
-                              .OnClicked_Lambda([]()
-                                                {
-                                                        ExecutePython(BuildLightmapResolutionPythonCommand(TEXT("tool.apply_to_asset()")), LightmapResolutionTabName);
-                                                        return FReply::Handled(); })] +
-                 SHorizontalBox::Slot()
-                     .AutoWidth()
-                     .Padding(0.0f, 0.0f, 6.0f, 0.0f)
-                         [SNew(SButton)
-                              .Text(FText::FromString(TEXT("Open Selected Actor")))
-                              .OnClicked_Lambda([]()
-                                                {
-                                                        ExecutePython(BuildLightmapResolutionPythonCommand(TEXT("tool.open_selected_actor()")), LightmapResolutionTabName);
-                                                        return FReply::Handled(); })] +
-                 SHorizontalBox::Slot()
-                     .AutoWidth()
-                         [SNew(SButton)
-                              .Text(FText::FromString(TEXT("Sync Selected Asset")))
-                              .OnClicked_Lambda([]()
-                                                {
-                                                        ExecutePython(BuildLightmapResolutionPythonCommand(TEXT("tool.sync_selected_asset()")), LightmapResolutionTabName);
-                                                        return FReply::Handled(); })]];
-    }
-
-    static TSharedRef<SWidget> BuildStaticMeshPipelineToolbar()
-    {
-        InitializeStaticMeshPipelineOptions();
-
-        return SNew(SBorder)
-            .Padding(FMargin(8.0f, 6.0f, 8.0f, 6.0f))
-                [SNew(SVerticalBox) + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)[SNew(SHorizontalBox) + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)[SNew(SButton).Text(FText::FromString(TEXT("Refresh"))).OnClicked_Lambda([]()
-                                                                                                                                                                                                                                                                          {
-                                                                     ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.refresh_status()")), StaticMeshPipelineTabName);
-                                                                     return FReply::Handled(); })] +
-                                                                                                        SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)[SNew(SButton).Text(FText::FromString(TEXT("Export All"))).OnClicked_Lambda([]()
-                                                                                                                                                                                                                                                      {
-                                                                     ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.run_export()")), StaticMeshPipelineTabName);
-                                                                     return FReply::Handled(); })] +
-                                                                                                        SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)[SNew(SButton).Text(FText::FromString(TEXT("Import/Reimport All"))).OnClicked_Lambda([]()
-                                                                                                                                                                                                                                                               {
-                                                                     ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.run_import_reimport()")), StaticMeshPipelineTabName);
-                                                                     return FReply::Handled(); })] +
-                                                                                                        SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)[SNew(SButton).Text(FText::FromString(TEXT("Open Audit Report"))).OnClicked_Lambda([]()
-                                                                                                                                                                                                                                                             {
-                                                                     ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.open_last_audit_report()")), StaticMeshPipelineTabName);
-                                                                     return FReply::Handled(); })] +
-                                                                                                        SHorizontalBox::Slot().FillWidth(1.0f)[SNullWidget::NullWidget]] +
-                 SVerticalBox::Slot()
-                     .AutoHeight()
-                     .Padding(0.0f, 0.0f, 0.0f, 6.0f)
-                         [SNew(SHorizontalBox) + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 6.0f, 0.0f)[SNew(SBox).WidthOverride(120.0f)[SNew(STextBlock).Text(FText::FromString(TEXT("Export Source")))]] + SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 6.0f, 0.0f)[SAssignNew(StaticMeshPipelineWidgets.ExportSourceInput, SEditableTextBox).HintText(FText::FromString(TEXT("/Game or /Game/Subfolder"))).OnTextCommitted_Lambda([](const FText &, ETextCommit::Type)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     { ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.refresh_status()")), StaticMeshPipelineTabName); })] +
-                          SHorizontalBox::Slot()
-                              .AutoWidth()
-                                  [SNew(SButton)
-                                       .Text(FText::FromString(TEXT("Open Export Folder")))
-                                       .OnClicked_Lambda([]()
-                                                         {
-                                                                     ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.open_export_folder()")), StaticMeshPipelineTabName);
-                                                                     return FReply::Handled(); })]] +
-                 SVerticalBox::Slot()
-                     .AutoHeight()
-                     .Padding(0.0f, 0.0f, 0.0f, 6.0f)
-                         [SNew(SHorizontalBox) + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 6.0f, 0.0f)[SNew(SBox).WidthOverride(120.0f)[SNew(STextBlock).Text(FText::FromString(TEXT("Export Destination")))]] + SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 6.0f, 0.0f)[SAssignNew(StaticMeshPipelineWidgets.ExportDestinationInput, SEditableTextBox).HintText(FText::FromString(TEXT("Filesystem folder"))).OnTextCommitted_Lambda([](const FText &, ETextCommit::Type)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        { ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.refresh_status()")), StaticMeshPipelineTabName); })] +
-                          SHorizontalBox::Slot()
-                              .AutoWidth()
-                              .Padding(0.0f, 0.0f, 6.0f, 0.0f)
-                                  [SNew(SButton)
-                                       .Text(FText::FromString(TEXT("Browse")))
-                                       .OnClicked_Lambda([]()
-                                                         {
-                                                                     const FString SelectedFolder = BrowseForDirectory(TEXT("Choose Export Destination"), GetStaticMeshPipelineExportDestination());
-                                                                     if (!SelectedFolder.IsEmpty() && StaticMeshPipelineWidgets.ExportDestinationInput.IsValid())
-                                                                     {
-                                                                         StaticMeshPipelineWidgets.ExportDestinationInput->SetText(FText::FromString(SelectedFolder));
-                                                                         ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.refresh_status()")), StaticMeshPipelineTabName);
-                                                                     }
-                                                                     return FReply::Handled(); })] +
-                          SHorizontalBox::Slot()
-                              .AutoWidth()
-                                  [SNew(SButton)
-                                       .Text(FText::FromString(TEXT("Open Export Folder")))
-                                       .OnClicked_Lambda([]()
-                                                         {
-                                                                     ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.open_export_folder()")), StaticMeshPipelineTabName);
-                                                                     return FReply::Handled(); })]] +
-                 SVerticalBox::Slot()
-                     .AutoHeight()
-                     .Padding(0.0f, 0.0f, 0.0f, 6.0f)
-                         [SNew(SHorizontalBox) + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 6.0f, 0.0f)[SNew(SBox).WidthOverride(120.0f)[SNew(STextBlock).Text(FText::FromString(TEXT("Import Source")))]] + SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 6.0f, 0.0f)[SAssignNew(StaticMeshPipelineWidgets.ImportSourceInput, SEditableTextBox).HintText(FText::FromString(TEXT("Filesystem folder"))).OnTextCommitted_Lambda([](const FText &, ETextCommit::Type)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                              { ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.refresh_status()")), StaticMeshPipelineTabName); })] +
-                          SHorizontalBox::Slot()
-                              .AutoWidth()
-                              .Padding(0.0f, 0.0f, 6.0f, 0.0f)
-                                  [SNew(SButton)
-                                       .Text(FText::FromString(TEXT("Browse")))
-                                       .OnClicked_Lambda([]()
-                                                         {
-                                                                     const FString SelectedFolder = BrowseForDirectory(TEXT("Choose Import Source"), GetStaticMeshPipelineImportSource());
-                                                                     if (!SelectedFolder.IsEmpty() && StaticMeshPipelineWidgets.ImportSourceInput.IsValid())
-                                                                     {
-                                                                         StaticMeshPipelineWidgets.ImportSourceInput->SetText(FText::FromString(SelectedFolder));
-                                                                         ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.refresh_status()")), StaticMeshPipelineTabName);
-                                                                     }
-                                                                     return FReply::Handled(); })] +
-                          SHorizontalBox::Slot()
-                              .AutoWidth()
-                                  [SNew(SButton)
-                                       .Text(FText::FromString(TEXT("Open Import Folder")))
-                                       .OnClicked_Lambda([]()
-                                                         {
-                                                                     ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.open_import_source_folder()")), StaticMeshPipelineTabName);
-                                                                     return FReply::Handled(); })]] +
-                 SVerticalBox::Slot()
-                     .AutoHeight()
-                     .Padding(0.0f, 0.0f, 0.0f, 6.0f)
-                         [SNew(SHorizontalBox) + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 6.0f, 0.0f)[SNew(SBox).WidthOverride(120.0f)[SNew(STextBlock).Text(FText::FromString(TEXT("Import Destination")))]] + SHorizontalBox::Slot().FillWidth(1.0f)[SAssignNew(StaticMeshPipelineWidgets.ImportDestinationInput, SEditableTextBox).HintText(FText::FromString(TEXT("/Game or /Game/Subfolder"))).OnTextCommitted_Lambda([](const FText &, ETextCommit::Type)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                               { ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.refresh_status()")), StaticMeshPipelineTabName); })]] +
-                 SVerticalBox::Slot()
-                     .AutoHeight()
-                     .Padding(0.0f, 0.0f, 0.0f, 0.0f)
-                         [SNew(SHorizontalBox) + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 12.0f, 0.0f)[SAssignNew(StaticMeshPipelineWidgets.RisksOnlyCheck, SCheckBox).OnCheckStateChanged_Lambda([](ECheckBoxState)
-                                                                                                                                                                                                                { ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.refresh_status()")), StaticMeshPipelineTabName); })[SNew(STextBlock).Text(FText::FromString(TEXT("Risks Only")))]] +
-                          SHorizontalBox::Slot()
-                              .AutoWidth()
-                              .VAlign(VAlign_Center)
-                              .Padding(0.0f, 0.0f, 6.0f, 0.0f)
-                                  [SNew(STextBlock).Text(FText::FromString(TEXT("Sort")))] +
-                          SHorizontalBox::Slot()
-                              .AutoWidth()
-                              .Padding(0.0f, 0.0f, 6.0f, 0.0f)
-                                  [SNew(SBox)
-                                       .WidthOverride(110.0f)
-                                           [SAssignNew(StaticMeshPipelineWidgets.SortColumnCombo, SComboBox<TSharedPtr<FString>>)
-                                                .OptionsSource(&StaticMeshPipelineWidgets.SortColumnOptions)
-                                                .InitiallySelectedItem(StaticMeshPipelineWidgets.SelectedSortColumn)
-                                                .OnGenerateWidget_Lambda([](TSharedPtr<FString> Item)
-                                                                         { return SNew(STextBlock).Text(FText::FromString(Item.IsValid() ? *Item : TEXT(""))); })
-                                                .OnSelectionChanged_Lambda([](TSharedPtr<FString> Item, ESelectInfo::Type)
-                                                                           {
-                                                                                       StaticMeshPipelineWidgets.SelectedSortColumn = Item;
-                                                                                       ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.refresh_status()")), StaticMeshPipelineTabName); })
-                                                    [SNew(STextBlock)
-                                                         .Text_Lambda([]()
-                                                                      { return FText::FromString(GetSelectedStaticMeshPipelineSortColumn()); })]]] +
-                          SHorizontalBox::Slot()
-                              .AutoWidth()
-                              .Padding(0.0f, 0.0f, 6.0f, 0.0f)
-                                  [SNew(SBox)
-                                       .WidthOverride(80.0f)
-                                           [SAssignNew(StaticMeshPipelineWidgets.SortDirectionCombo, SComboBox<TSharedPtr<FString>>)
-                                                .OptionsSource(&StaticMeshPipelineWidgets.SortDirectionOptions)
-                                                .InitiallySelectedItem(StaticMeshPipelineWidgets.SelectedSortDirection)
-                                                .OnGenerateWidget_Lambda([](TSharedPtr<FString> Item)
-                                                                         { return SNew(STextBlock).Text(FText::FromString(Item.IsValid() ? *Item : TEXT(""))); })
-                                                .OnSelectionChanged_Lambda([](TSharedPtr<FString> Item, ESelectInfo::Type)
-                                                                           {
-                                                                                       StaticMeshPipelineWidgets.SelectedSortDirection = Item;
-                                                                                       ExecutePython(BuildStaticMeshPipelinePythonCommand(TEXT("tool.refresh_status()")), StaticMeshPipelineTabName); })
-                                                    [SNew(STextBlock)
-                                                         .Text_Lambda([]()
-                                                                      { return FText::FromString(GetSelectedStaticMeshPipelineSortDirection()); })]]] +
-                          SHorizontalBox::Slot()
-                              .FillWidth(1.0f)
-                                  [SNullWidget::NullWidget]]];
-    }
-
-    static FString GetLightmapResolutionColumnValue(const FLightmapResolutionRowPtr &Item, const FName &ColumnName)
-    {
-        if (!Item.IsValid())
+        DiscoveredTools = DiscoverToolDefinitions();
+        ToolsByTabId.Empty();
+        for (const FDiscoveredToolDefinition &Tool : DiscoveredTools)
         {
-            return FString();
+            ToolsByTabId.Add(Tool.TabId, Tool);
         }
-
-        if (ColumnName == LevelColumnName)
-        {
-            return Item->Level;
-        }
-        if (ColumnName == ActorColumnName)
-        {
-            return Item->Actor;
-        }
-        if (ColumnName == ComponentColumnName)
-        {
-            return Item->Component;
-        }
-        if (ColumnName == MeshColumnName)
-        {
-            return Item->Mesh;
-        }
-        if (ColumnName == MobilityColumnName)
-        {
-            return Item->Mobility;
-        }
-        if (ColumnName == EffectiveColumnName)
-        {
-            return Item->Effective;
-        }
-        if (ColumnName == AssetColumnName)
-        {
-            return Item->Asset;
-        }
-        if (ColumnName == OverrideColumnName)
-        {
-            return Item->Override;
-        }
-
-        return FString();
-    }
-
-    static FString GetStaticMeshPipelineColumnValue(const FStaticMeshPipelineRowPtr &Item, const FName &ColumnName)
-    {
-        if (!Item.IsValid())
-        {
-            return FString();
-        }
-
-        if (ColumnName == PipelineAssetColumnName)
-        {
-            return Item->Asset;
-        }
-        if (ColumnName == PipelineActionColumnName)
-        {
-            return Item->Action;
-        }
-        if (ColumnName == PipelineResultColumnName)
-        {
-            return Item->Result;
-        }
-        if (ColumnName == PipelineOverlapColumnName)
-        {
-            return Item->Overlap;
-        }
-        if (ColumnName == PipelineWrappingColumnName)
-        {
-            return Item->Wrapping;
-        }
-
-        return FString();
-    }
-
-    class SLightmapResolutionTableRow final : public SMultiColumnTableRow<FLightmapResolutionRowPtr>
-    {
-    public:
-        SLATE_BEGIN_ARGS(SLightmapResolutionTableRow) {}
-        SLATE_ARGUMENT(FLightmapResolutionRowPtr, Item)
-        SLATE_END_ARGS()
-
-        void Construct(const FArguments &InArgs, const TSharedRef<STableViewBase> &OwnerTableView)
-        {
-            Item = InArgs._Item;
-
-            SMultiColumnTableRow<FLightmapResolutionRowPtr>::Construct(
-                FSuperRowType::FArguments()
-                    .Padding(FMargin(0.0f, 1.0f)),
-                OwnerTableView);
-        }
-
-    protected:
-        virtual TSharedRef<SWidget> GenerateWidgetForColumn(const FName &ColumnName) override
-        {
-            return SNew(STextBlock)
-                .Text(FText::FromString(GetLightmapResolutionColumnValue(Item, ColumnName)))
-                .OverflowPolicy(ETextOverflowPolicy::Ellipsis)
-                .Margin(FMargin(6.0f, 2.0f));
-        }
-
-    private:
-        FLightmapResolutionRowPtr Item;
-    };
-
-    class SStaticMeshPipelineTableRow final : public SMultiColumnTableRow<FStaticMeshPipelineRowPtr>
-    {
-    public:
-        SLATE_BEGIN_ARGS(SStaticMeshPipelineTableRow) {}
-        SLATE_ARGUMENT(FStaticMeshPipelineRowPtr, Item)
-        SLATE_END_ARGS()
-
-        void Construct(const FArguments &InArgs, const TSharedRef<STableViewBase> &OwnerTableView)
-        {
-            Item = InArgs._Item;
-
-            SMultiColumnTableRow<FStaticMeshPipelineRowPtr>::Construct(
-                FSuperRowType::FArguments()
-                    .Padding(FMargin(0.0f, 1.0f)),
-                OwnerTableView);
-        }
-
-    protected:
-        virtual TSharedRef<SWidget> GenerateWidgetForColumn(const FName &ColumnName) override
-        {
-            return SNew(STextBlock)
-                .Text(FText::FromString(GetStaticMeshPipelineColumnValue(Item, ColumnName)))
-                .OverflowPolicy(ETextOverflowPolicy::Ellipsis)
-                .Margin(FMargin(6.0f, 2.0f));
-        }
-
-    private:
-        FStaticMeshPipelineRowPtr Item;
-    };
-
-    static TSharedRef<SHeaderRow> BuildLightmapResolutionHeaderRow()
-    {
-        return SNew(SHeaderRow) + SHeaderRow::Column(LevelColumnName).DefaultLabel(FText::FromString(TEXT("Level"))).ManualWidth(180.0f).MinSize(120.0f) + SHeaderRow::Column(ActorColumnName).DefaultLabel(FText::FromString(TEXT("Actor"))).ManualWidth(360.0f).MinSize(160.0f) + SHeaderRow::Column(ComponentColumnName).DefaultLabel(FText::FromString(TEXT("Component"))).ManualWidth(320.0f).MinSize(160.0f) + SHeaderRow::Column(MeshColumnName).DefaultLabel(FText::FromString(TEXT("Mesh"))).ManualWidth(250.0f).MinSize(150.0f) + SHeaderRow::Column(MobilityColumnName).DefaultLabel(FText::FromString(TEXT("Mobility"))).ManualWidth(120.0f).MinSize(90.0f) + SHeaderRow::Column(EffectiveColumnName).DefaultLabel(FText::FromString(TEXT("Effective"))).ManualWidth(95.0f).MinSize(85.0f) + SHeaderRow::Column(AssetColumnName).DefaultLabel(FText::FromString(TEXT("Asset"))).ManualWidth(95.0f).MinSize(85.0f) + SHeaderRow::Column(OverrideColumnName).DefaultLabel(FText::FromString(TEXT("Override"))).ManualWidth(95.0f).MinSize(85.0f) + SHeaderRow::Column(LightmapResizeSpacerColumnName).FixedWidth(16.0f).ShouldGenerateWidget(false).ShouldGenerateEmptyWidgetForSpacing(true).HeaderComboVisibility(EHeaderComboVisibility::Never);
-    }
-
-    static TSharedRef<SHeaderRow> BuildStaticMeshPipelineHeaderRow()
-    {
-        return SNew(SHeaderRow) + SHeaderRow::Column(PipelineAssetColumnName).DefaultLabel(FText::FromString(TEXT("Asset"))).ManualWidth(280.0f).MinSize(160.0f) + SHeaderRow::Column(PipelineActionColumnName).DefaultLabel(FText::FromString(TEXT("Action"))).ManualWidth(120.0f).MinSize(90.0f) + SHeaderRow::Column(PipelineResultColumnName).DefaultLabel(FText::FromString(TEXT("Result"))).ManualWidth(120.0f).MinSize(90.0f) + SHeaderRow::Column(PipelineOverlapColumnName).DefaultLabel(FText::FromString(TEXT("Overlap"))).ManualWidth(100.0f).MinSize(85.0f) + SHeaderRow::Column(PipelineWrappingColumnName).DefaultLabel(FText::FromString(TEXT("Wrapping"))).ManualWidth(100.0f).MinSize(85.0f) + SHeaderRow::Column(PipelineResizeSpacerColumnName).FixedWidth(16.0f).ShouldGenerateWidget(false).ShouldGenerateEmptyWidgetForSpacing(true).HeaderComboVisibility(EHeaderComboVisibility::Never);
-    }
-
-    static TSharedRef<ITableRow> GenerateLightmapResolutionRow(const FLightmapResolutionRowPtr Item, const TSharedRef<STableViewBase> &OwnerTable)
-    {
-        return SNew(SLightmapResolutionTableRow, OwnerTable)
-            .Item(Item);
-    }
-
-    static TSharedRef<ITableRow> GenerateStaticMeshPipelineRow(const FStaticMeshPipelineRowPtr Item, const TSharedRef<STableViewBase> &OwnerTable)
-    {
-        return SNew(SStaticMeshPipelineTableRow, OwnerTable)
-            .Item(Item);
-    }
-
-    static TSharedRef<SWidget> BuildLightmapResolutionWidget()
-    {
-        InitializeLightmapResolutionOptions();
-
-        return SNew(SScrollBox) + SScrollBox::Slot()[SNew(SVerticalBox) + SVerticalBox::Slot().AutoHeight()[SNew(SBorder).Padding(FMargin(10.0f))[SNew(STextBlock).Text(FText::FromString(TEXT("Inspect static mesh lightmap resolution across the selected levels. Use Apply To Instance for a per-level override, or Apply To Asset to change the static mesh default."))).AutoWrapText(true)]] + SVerticalBox::Slot().AutoHeight()[BuildLightmapResolutionToolbar()] + SVerticalBox::Slot().AutoHeight()[SNew(SBox).MinDesiredHeight(700.0f)[SNew(SSplitter).Orientation(Orient_Vertical) + SSplitter::Slot().Value(0.12f)[SNew(SBorder).Padding(FMargin(8.0f, 6.0f, 8.0f, 6.0f))[SNew(SVerticalBox) + SVerticalBox::Slot().AutoHeight()[SAssignNew(LightmapResolutionWidgets.ProgressText, STextBlock).Text(FText::FromString(TEXT("Idle")))] + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 6.0f, 0.0f, 0.0f)[SAssignNew(LightmapResolutionWidgets.ProgressBar, SProgressBar).Percent(0.0f)]]] + SSplitter::Slot().Value(0.23f)[SNew(SBorder).Padding(FMargin(8.0f))[SAssignNew(LightmapResolutionWidgets.StatusOutput, SMultiLineEditableTextBox).IsReadOnly(true).AlwaysShowScrollbars(true).Text(FText::FromString(TEXT("Loading...")))]] + SSplitter::Slot().Value(0.43f)[SNew(SBorder).Padding(FMargin(8.0f))[SAssignNew(LightmapResolutionWidgets.RowsListView, SListView<FLightmapResolutionRowPtr>).ListItemsSource(&LightmapResolutionWidgets.RowItems).SelectionMode(ESelectionMode::Multi).HeaderRow(BuildLightmapResolutionHeaderRow()).OnGenerateRow_Static(&GenerateLightmapResolutionRow).OnSelectionChanged_Lambda([](FLightmapResolutionRowPtr, ESelectInfo::Type)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           { SyncSelectedLightmapRowsToPython(); })]] +
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                SSplitter::Slot().Value(0.22f)[SNew(SBorder).Padding(FMargin(8.0f))[SAssignNew(LightmapResolutionWidgets.DetailOutput, SMultiLineEditableTextBox).IsReadOnly(true).AlwaysShowScrollbars(true).Text(FText::FromString(TEXT("Select a row to inspect or edit it.")))]]]]];
-    }
-
-    static TSharedRef<SWidget> BuildStaticMeshPipelineWidget()
-    {
-        InitializeStaticMeshPipelineOptions();
-
-        return SNew(SScrollBox) + SScrollBox::Slot()[SNew(SVerticalBox) + SVerticalBox::Slot().AutoHeight()[SNew(SBorder).Padding(FMargin(10.0f))[SNew(STextBlock).Text(FText::FromString(TEXT("Export project static meshes to the exchange folder, then import or reimport FBX/OBJ files back into Unreal with the lightmap audit summary surfaced below."))).AutoWrapText(true)]] + SVerticalBox::Slot().AutoHeight()[BuildStaticMeshPipelineToolbar()] + SVerticalBox::Slot().AutoHeight()[SNew(SBox).MinDesiredHeight(700.0f)[SNew(SSplitter).Orientation(Orient_Vertical) + SSplitter::Slot().Value(0.12f)[SNew(SBorder).Padding(FMargin(8.0f, 6.0f, 8.0f, 6.0f))[SNew(SVerticalBox) + SVerticalBox::Slot().AutoHeight()[SAssignNew(StaticMeshPipelineWidgets.ProgressText, STextBlock).Text(FText::FromString(TEXT("Idle")))] + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 6.0f, 0.0f, 0.0f)[SAssignNew(StaticMeshPipelineWidgets.ProgressBar, SProgressBar).Percent(0.0f)]]] + SSplitter::Slot().Value(0.25f)[SNew(SBorder).Padding(FMargin(8.0f))[SAssignNew(StaticMeshPipelineWidgets.StatusOutput, SMultiLineEditableTextBox).IsReadOnly(true).AlwaysShowScrollbars(true).Text(FText::FromString(TEXT("Loading...")))]] + SSplitter::Slot().Value(0.38f)[SNew(SBorder).Padding(FMargin(8.0f))[SAssignNew(StaticMeshPipelineWidgets.RowsListView, SListView<FStaticMeshPipelineRowPtr>).ListItemsSource(&StaticMeshPipelineWidgets.RowItems).SelectionMode(ESelectionMode::Multi).HeaderRow(BuildStaticMeshPipelineHeaderRow()).OnGenerateRow_Static(&GenerateStaticMeshPipelineRow).OnSelectionChanged_Lambda([](FStaticMeshPipelineRowPtr, ESelectInfo::Type)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              { SyncSelectedStaticMeshPipelineRowsToPython(); })]] +
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   SSplitter::Slot().Value(0.25f)[SNew(SBorder).Padding(FMargin(8.0f))[SAssignNew(StaticMeshPipelineWidgets.DetailOutput, SMultiLineEditableTextBox).IsReadOnly(true).AlwaysShowScrollbars(true).Text(FText::FromString(TEXT("Select a pipeline row to inspect the export/import result details.")))]]]]];
     }
 }
 
@@ -1580,6 +1857,8 @@ class FPythonEditorUtilityModule final : public IModuleInterface
 public:
     virtual void StartupModule() override
     {
+        PythonEditorUtility::RefreshDiscoveredTools();
+
         if (IPythonScriptPlugin *PythonPlugin = IPythonScriptPlugin::Get())
         {
             PythonPlugin->RegisterOnPythonInitialized(FSimpleDelegate::CreateStatic(&PythonEditorUtility::EnsurePythonSearchPath));
@@ -1587,103 +1866,74 @@ public:
 
         PythonEditorUtilityGroup = WorkspaceMenu::GetMenuStructure().GetToolsCategory()->AddGroup(
             FText::FromString(TEXT("Python Editor Utility")),
-            FText::FromString(TEXT("Project-owned PythonEditorUtility tabs.")),
+            FText::FromString(TEXT("Project-owned PythonEditorUtility tabs discovered from the configured UI root.")),
             FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("WorkspaceMenu.AdditionalUI")),
             true);
 
-        FGlobalTabmanager::Get()->RegisterNomadTabSpawner(PythonEditorUtility::BuildLightingTabName,
-                                                          FOnSpawnTab::CreateRaw(this, &FPythonEditorUtilityModule::SpawnBuildLightingTab))
-            .SetDisplayName(FText::FromString(TEXT("Build Lighting")))
-            .SetTooltipText(FText::FromString(TEXT("Open the PythonEditorUtility Build Lighting tab.")))
-            .SetGroup(PythonEditorUtilityGroup.ToSharedRef());
-
-        FGlobalTabmanager::Get()->RegisterNomadTabSpawner(PythonEditorUtility::LightmapResolutionTabName,
-                                                          FOnSpawnTab::CreateRaw(this, &FPythonEditorUtilityModule::SpawnLightmapResolutionTab))
-            .SetDisplayName(FText::FromString(TEXT("Lightmap Resolution")))
-            .SetTooltipText(FText::FromString(TEXT("Open the PythonEditorUtility Lightmap Resolution tab.")))
-            .SetGroup(PythonEditorUtilityGroup.ToSharedRef());
-
-        FGlobalTabmanager::Get()->RegisterNomadTabSpawner(PythonEditorUtility::StaticMeshPipelineTabName,
-                                                          FOnSpawnTab::CreateRaw(this, &FPythonEditorUtilityModule::SpawnStaticMeshPipelineTab))
-            .SetDisplayName(FText::FromString(TEXT("Static Mesh Pipeline")))
-            .SetTooltipText(FText::FromString(TEXT("Open the PythonEditorUtility Static Mesh Pipeline tab.")))
-            .SetGroup(PythonEditorUtilityGroup.ToSharedRef());
+        for (const PythonEditorUtility::FDiscoveredToolDefinition &Tool : PythonEditorUtility::DiscoveredTools)
+        {
+            FGlobalTabmanager::Get()->RegisterNomadTabSpawner(
+                                        Tool.TabId,
+                                        FOnSpawnTab::CreateRaw(this, &FPythonEditorUtilityModule::SpawnDiscoveredToolTab, Tool.TabId))
+                .SetDisplayName(FText::FromString(Tool.TabLabel))
+                .SetTooltipText(FText::FromString(Tool.Tooltip))
+                .SetGroup(PythonEditorUtilityGroup.ToSharedRef());
+        }
 
         UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FPythonEditorUtilityModule::RegisterMenus));
     }
 
     virtual void ShutdownModule() override
     {
-        PythonEditorUtility::ToolOutputTextBoxes.Empty();
-        PythonEditorUtility::LightmapResolutionWidgets = PythonEditorUtility::FLightmapResolutionWidgets();
-        PythonEditorUtility::StaticMeshPipelineWidgets = PythonEditorUtility::FStaticMeshPipelineWidgets();
+        PythonEditorUtility::ToolStringBindings.Empty();
+        PythonEditorUtility::ToolBoolBindings.Empty();
+        PythonEditorUtility::ToolStateValues.Empty();
+        PythonEditorUtility::ToolEditableTextWidgets.Empty();
+        PythonEditorUtility::ToolCheckBoxWidgets.Empty();
+        PythonEditorUtility::ToolComboBoxWidgets.Empty();
+        PythonEditorUtility::ToolTextBlockWidgets.Empty();
+        PythonEditorUtility::ToolMultiLineTextWidgets.Empty();
+        PythonEditorUtility::ToolProgressBarWidgets.Empty();
+        PythonEditorUtility::ToolStateTableWidgets.Empty();
+        PythonEditorUtility::TabsRefreshingBindings.Empty();
         UToolMenus::UnRegisterStartupCallback(this);
         UToolMenus::UnregisterOwner(this);
-        FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(PythonEditorUtility::BuildLightingTabName);
-        FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(PythonEditorUtility::LightmapResolutionTabName);
-        FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(PythonEditorUtility::StaticMeshPipelineTabName);
+
+        for (const PythonEditorUtility::FDiscoveredToolDefinition &Tool : PythonEditorUtility::DiscoveredTools)
+        {
+            FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(Tool.TabId);
+        }
     }
 
 private:
     TSharedPtr<FWorkspaceItem> PythonEditorUtilityGroup;
 
-    void AddBuildLightingEntry(FToolMenuSection &Section)
-    {
-        if (Section.FindEntry(TEXT("OpenPythonEditorUtilityBuildLighting")) == nullptr)
-        {
-            Section.AddMenuEntry(
-                TEXT("OpenPythonEditorUtilityBuildLighting"),
-                FText::FromString(TEXT("Build Lighting")),
-                FText::FromString(TEXT("Open the native PythonEditorUtility Build Lighting widget.")),
-                FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Tool")),
-                FUIAction(FExecuteAction::CreateRaw(this, &FPythonEditorUtilityModule::OpenBuildLightingTab)));
-        }
-    }
-
-    void AddLightmapResolutionEntry(FToolMenuSection &Section)
-    {
-        if (Section.FindEntry(TEXT("OpenPythonEditorUtilityLightmapResolution")) == nullptr)
-        {
-            Section.AddMenuEntry(
-                TEXT("OpenPythonEditorUtilityLightmapResolution"),
-                FText::FromString(TEXT("Lightmap Resolution")),
-                FText::FromString(TEXT("Open the native PythonEditorUtility Lightmap Resolution widget.")),
-                FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Tool")),
-                FUIAction(FExecuteAction::CreateRaw(this, &FPythonEditorUtilityModule::OpenLightmapResolutionTab)));
-        }
-    }
-
-    void AddStaticMeshPipelineEntry(FToolMenuSection &Section)
-    {
-        if (Section.FindEntry(TEXT("OpenPythonEditorUtilityStaticMeshPipeline")) == nullptr)
-        {
-            Section.AddMenuEntry(
-                TEXT("OpenPythonEditorUtilityStaticMeshPipeline"),
-                FText::FromString(TEXT("Static Mesh Pipeline")),
-                FText::FromString(TEXT("Open the combined PythonEditorUtility static mesh export/import widget.")),
-                FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Tool")),
-                FUIAction(FExecuteAction::CreateRaw(this, &FPythonEditorUtilityModule::OpenStaticMeshPipelineTab)));
-        }
-    }
-
     void RegisterMenus()
     {
         if (UToolMenu *ToolsMenu = UToolMenus::Get()->ExtendMenu(TEXT("LevelEditor.MainMenu.Tools")))
         {
-            FToolMenuSection &Section = ToolsMenu->FindOrAddSection(TEXT("Python"));
             UToolMenu *SubMenu = ToolsMenu->AddSubMenu(
                 FToolMenuOwner(this),
                 TEXT("Python"),
                 TEXT("PythonEditorUtilitySubMenu"),
                 FText::FromString(TEXT("Editor Utility Widget")),
-                FText::FromString(TEXT("Open PythonEditorUtility widgets.")));
+                FText::FromString(TEXT("Open PythonEditorUtility widgets discovered from the configured UI root.")));
 
             if (SubMenu != nullptr)
             {
                 FToolMenuSection &SubMenuSection = SubMenu->FindOrAddSection(TEXT("PythonEditorUtilityTools"));
-                AddBuildLightingEntry(SubMenuSection);
-                AddLightmapResolutionEntry(SubMenuSection);
-                AddStaticMeshPipelineEntry(SubMenuSection);
+                for (const PythonEditorUtility::FDiscoveredToolDefinition &Tool : PythonEditorUtility::DiscoveredTools)
+                {
+                    if (SubMenuSection.FindEntry(Tool.MenuEntryName) == nullptr)
+                    {
+                        SubMenuSection.AddMenuEntry(
+                            Tool.MenuEntryName,
+                            FText::FromString(Tool.TabLabel),
+                            FText::FromString(Tool.Tooltip),
+                            FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Tool")),
+                            FUIAction(FExecuteAction::CreateRaw(this, &FPythonEditorUtilityModule::OpenDiscoveredToolTab, Tool.TabId)));
+                    }
+                }
                 UToolMenus::Get()->RefreshMenuWidget(SubMenu->GetMenuName());
             }
         }
@@ -1691,46 +1941,26 @@ private:
         UToolMenus::Get()->RefreshMenuWidget(TEXT("LevelEditor.MainMenu.Tools"));
     }
 
-    void OpenBuildLightingTab()
+    void OpenDiscoveredToolTab(FName TabId)
     {
-        FGlobalTabmanager::Get()->TryInvokeTab(PythonEditorUtility::BuildLightingTabName);
-        PythonEditorUtility::SyncWidgetStateFromPython(PythonEditorUtility::BuildLightingTabName);
+        FGlobalTabmanager::Get()->TryInvokeTab(TabId);
+        PythonEditorUtility::RefreshToolOutput(TabId);
     }
 
-    void OpenLightmapResolutionTab()
-    {
-        FGlobalTabmanager::Get()->TryInvokeTab(PythonEditorUtility::LightmapResolutionTabName);
-        PythonEditorUtility::SyncWidgetStateFromPython(PythonEditorUtility::LightmapResolutionTabName);
-    }
-
-    void OpenStaticMeshPipelineTab()
-    {
-        FGlobalTabmanager::Get()->TryInvokeTab(PythonEditorUtility::StaticMeshPipelineTabName);
-        PythonEditorUtility::SyncWidgetStateFromPython(PythonEditorUtility::StaticMeshPipelineTabName);
-    }
-
-    TSharedRef<SDockTab> SpawnBuildLightingTab(const FSpawnTabArgs &Args)
+    TSharedRef<SDockTab> SpawnDiscoveredToolTab(const FSpawnTabArgs &Args, FName TabId)
     {
         PythonEditorUtility::EnsurePythonSearchPath();
-        return SNew(SDockTab)
-            .TabRole(ETabRole::NomadTab)
-                [PythonEditorUtility::BuildWidgetTreeFromJson(PythonEditorUtility::BuildLightingTabName)];
-    }
+        if (const PythonEditorUtility::FDiscoveredToolDefinition *Tool = PythonEditorUtility::FindToolByTabId(TabId))
+        {
+            PythonEditorUtility::RunInitPython(*Tool);
+        }
 
-    TSharedRef<SDockTab> SpawnLightmapResolutionTab(const FSpawnTabArgs &Args)
-    {
-        PythonEditorUtility::EnsurePythonSearchPath();
-        return SNew(SDockTab)
-            .TabRole(ETabRole::NomadTab)
-                [PythonEditorUtility::BuildLightmapResolutionWidget()];
-    }
+        const TSharedRef<SWidget> RootWidget = PythonEditorUtility::BuildWidgetTreeFromJson(TabId);
+        PythonEditorUtility::RefreshToolOutput(TabId);
 
-    TSharedRef<SDockTab> SpawnStaticMeshPipelineTab(const FSpawnTabArgs &Args)
-    {
-        PythonEditorUtility::EnsurePythonSearchPath();
         return SNew(SDockTab)
             .TabRole(ETabRole::NomadTab)
-                [PythonEditorUtility::BuildStaticMeshPipelineWidget()];
+                [RootWidget];
     }
 };
 

@@ -1,126 +1,71 @@
 # PythonEditorUtility Project Layout Example
 
-This folder contains a plugin-local copy of the project layout that PythonEditorUtility normally works with.
+This folder is a downstream integration template for the standalone PythonEditorUtility plugin.
 
-It shows the expected structure and file relationships in one place under the plugin root.
-The files here are snapshots of the real project-owned files used by PythonEditorUtility.
+The plugin stays framework-only. This example shows the project-owned integration files that a downstream team customizes. The rule is simple: do not modify plugin source to add project workflows.
 
-If you are new to PythonEditorUtility, this is the fastest way to understand how the plugin normally interacts with project-owned files outside the plugin itself.
+## What The Starter Demonstrates
 
-Use this folder when you want to:
+The neutral starter is intentionally small. It demonstrates the framework contract without mirroring this repository's production tools.
 
-- see how `PEU/PythonEditorUtility/` is normally organized
-- see which `Scripts/` files PythonEditorUtility depends on
-- understand how the plugin, project Python layer, UI definitions, and scripts fit together
-- share the expected layout without sending people through multiple top-level folders first
+- `Config/DefaultPythonEditorUtility.ini` maps the plugin to project-owned integration folders.
+- `PEU/PythonEditorUtility/UI/*.json` demonstrates dynamic discovery of editor tabs.
+- `StarterOverviewTool.json` demonstrates `InitPyCmd`, `StateFile`, and read-only status rendering.
+- `StarterActionsTool.json` demonstrates `%Text%`, `%Checked%`, `%Value%`, `%Widget:*%`, slot-level row padding, and the native `PEU:BrowseFolder:*` pattern.
+- `ProjectIntegration.py` demonstrates the adapter boundary between the discovered controllers and project-owned scripts under `Scripts/`.
 
-## Layout Overview
-
-Included structure:
-
-- `PEU/PythonEditorUtility/Python/PythonEditorUtility/`
-- `PEU/PythonEditorUtility/UI/`
-- `PEU/PythonEditorUtility/State/`
-- `Scripts/`
-
-Tree view:
+## Example Tree
 
 ```text
 ProjectLayout/
+|-- Config/
+|   `-- DefaultPythonEditorUtility.ini
 |-- PEU/
 |   `-- PythonEditorUtility/
 |       |-- Python/
 |       |   `-- PythonEditorUtility/
-|       |       |-- BuildLightingTool.py
-|       |       |-- LightmapResolutionTool.py
-|       |       |-- StaticMeshPipelineTool.py
+|       |       |-- ProjectIntegration.py
+|       |       |-- StarterActionsTool.py
+|       |       |-- StarterOverviewTool.py
 |       |       `-- __init__.py
 |       |-- State/
 |       |   `-- README.md
 |       `-- UI/
-|           |-- BuildLightingTool.json
-|           `-- LightmapResolutionTool.json
+|           |-- StarterActionsTool.json
+|           `-- StarterOverviewTool.json
 `-- Scripts/
-    |-- audit_static_mesh_lightmaps.py
-    |-- build_level_lighting.py
-    |-- bulk_export_static_meshes.py
-    |-- bulk_reimport_static_meshes.py
-    |-- project_path_utils.py
-    |-- UE_Lightmap_UV_Fixer.py
-    `-- UE_Lightmap_UV_Fixer_Batch.py
+    |-- starter_catalog.py
+    `-- starter_workflow.py
 ```
 
-## What Each Area Represents
+## How To Use The Template
 
-### `PEU/PythonEditorUtility/Python/PythonEditorUtility/`
+1. Copy `Config/DefaultPythonEditorUtility.ini` into your project's `Config/` folder.
+2. Adjust the path values if your project keeps the integration files somewhere other than `PEU/PythonEditorUtility/`.
+3. Replace the starter JSON files with your own tool definitions.
+4. Replace the starter controllers with your own project-owned controller modules.
+5. Point `ProjectIntegration.py` at your real project-owned scripts under `Scripts/`.
+6. Keep generated runtime state in `PEU/PythonEditorUtility/State/`.
 
-This is the project-owned Python layer used by the plugin.
-These files hold the tool behavior for:
+## Binding Surface
 
-- Build Lighting
-- Lightmap Resolution
-- Static Mesh Pipeline
+The starter uses the generic binding surface already supported by the plugin:
 
-When the plugin UI triggers actions, this is the layer that usually handles tool state, filtering, workflow orchestration, and calls into lower-level project scripts.
+- `%Text%` for text-box commits
+- `%Checked%` for check-box state
+- `%Value%` for combo-box selection
+- `%Widget:Name%` for reading values from other widgets in the same tab
+- `StateFile` and `StateKey` for project-owned state rehydration
+- `InitPyCmd` for project-owned bootstrap logic
+- `PEU:BrowseFolder:WidgetAka` for native directory selection that flows back through `OnTextCommitted`
 
-### `PEU/PythonEditorUtility/UI/`
+`StarterActionsTool.json` is the concrete reference for a label + text box + browse + action row in the example integration.
 
-This area contains the UI definition files used by the PEU workflows.
-It is useful when you need to understand the shape of the tool UIs alongside the Python behavior layer.
+## Ownership Boundary
 
-### `PEU/PythonEditorUtility/State/`
+- Change the plugin only when the standalone framework contract must change for every downstream project.
+- Change the example-derived project integration when you need different tools, scripts, or project policy.
+- Keep the backend logic in project-owned Python and `Scripts/` files.
+- Do not modify plugin source for project-specific workflows.
 
-In the real project, this folder is where runtime status files and JSON state snapshots are written while the tools are in use.
-
-Inside this example layout, the folder contains a placeholder README only.
-That is intentional because the real state files are generated during use and are not fixed source files.
-
-### `Scripts/`
-
-These are the project scripts that PythonEditorUtility commonly relies on.
-They represent the backend layer that the PEU Python modules call into for actual work.
-
-This is the most important place to inspect when you want to understand how a PEU tool reaches the lower-level project automation.
-
-## Real Path Mapping
-
-This example folder is a mirror of the real repository layout.
-Use the table below to map example paths to the live project paths:
-
-- Example: `Plugins/PythonEditorUtility/Examples/ProjectLayout/PEU/PythonEditorUtility/Python/PythonEditorUtility/BuildLightingTool.py`
-  Real path: `PEU/PythonEditorUtility/Python/PythonEditorUtility/BuildLightingTool.py`
-- Example: `Plugins/PythonEditorUtility/Examples/ProjectLayout/PEU/PythonEditorUtility/UI/BuildLightingTool.json`
-  Real path: `PEU/PythonEditorUtility/UI/BuildLightingTool.json`
-- Example: `Plugins/PythonEditorUtility/Examples/ProjectLayout/Scripts/build_level_lighting.py`
-  Real path: `Scripts/build_level_lighting.py`
-
-## How To Use This Folder
-
-Use this layout copy for orientation, documentation, and code review prep.
-
-Typical use cases:
-
-- walk a new contributor through PythonEditorUtility without jumping across the repo first
-- explain where the plugin stops and project-owned Python begins
-- show which backend scripts are part of the normal tool flow
-- compare the copied structure against the real project files while debugging or extending a tool
-
-Recommended reading order:
-
-1. Start with the plugin README.
-2. Open the copied Python tool modules under `PEU/PythonEditorUtility/Python/PythonEditorUtility/`.
-3. Open the related files under `Scripts/`.
-4. Compare the copied files to the real repository paths when making actual code changes.
-
-Important notes:
-
-- This folder is a documentation-oriented project layout copy.
-- PythonEditorUtility does not load files from this folder automatically.
-- Runtime behavior still comes from the real project paths at the repository root.
-- The empty `State/` folder is included only to show the expected structure because those files are normally generated at runtime.
-
-## Updating The Copy
-
-If the real PythonEditorUtility project layout changes, refresh this example folder so it continues to represent the normal structure accurately.
-
-Treat this folder as documentation that mirrors the current project state, not as the live source of truth.
+Treat this folder as a neutral starter and integration reference, not as a second copy of UE_AutomationMCP's live tooling.
