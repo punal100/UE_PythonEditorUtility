@@ -23,13 +23,13 @@ def _sample_rows(export_destination: str, import_source: str) -> list[dict]:
             "key": "SM_WindowFrame",
             "asset": "SM_WindowFrame",
             "action": "Reimport",
-            "result": "Risk",
-            "overlap": "8.4%",
-            "wrapping": "Yes",
+            "result": "OK",
+            "overlap": "0.0%",
+            "wrapping": "No",
             "asset_path": "/Game/Architecture/SM_WindowFrame",
             "source_file": import_source,
             "target_path": "/Game/Architecture/SM_WindowFrame",
-            "issues": ["UV channel 1 still overlaps after import."],
+            "issues": [],
         },
         {
             "key": "SM_FloorTile",
@@ -79,6 +79,10 @@ def build_pipeline_snapshot(
     elif operation_result and operation_result.get("operation") == "Import/Reimport All":
         rows[1]["action"] = "Reimport"
         rows[2]["action"] = "Import"
+        rows[1]["result"] = "OK"
+        rows[1]["overlap"] = "0.0%"
+        rows[1]["wrapping"] = "No"
+        rows[1]["issues"] = []
 
     if risks_only:
         rows = [row for row in rows if row["result"] == "Risk" or row["issues"]]

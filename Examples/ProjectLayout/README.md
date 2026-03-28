@@ -11,10 +11,10 @@ The example now follows the same four-tool breakdown used by a production-style 
 - `BuildLightingTool.json` and `BuildLightingTool.py` show the lighting summary and precheck flow.
 - `LightmapResolutionTool.json` and `LightmapResolutionTool.py` show filter bindings, row selection, and table-driven actions.
 - `StaticMeshPipelineTool.json` and `StaticMeshPipelineTool.py` show path editing, browse buttons, audit-style rows, and export or import actions.
-- `BlenderUvFixerPipelineTool.json` and `BlenderUvFixerPipelineTool.py` show the headless Blender batch pattern.
+- `BlenderUvFixerPipelineTool.json` and `BlenderUvFixerPipelineTool.py` show the preset-aware external Blender batch pattern.
 - `ProjectIntegration.py` demonstrates the adapter boundary between discovered controllers and project-owned scripts under `Scripts/`.
 
-The example uses the same script filenames as the live project, but the script bodies are intentionally lightweight. Treat them as structure and API references, not as production replacements for the repo's real automation.
+The example uses the same script filenames as the live project, but the script bodies are intentionally lightweight. Treat them as structure and API references, not as production replacements for the repo's real automation. The Blender example mirrors the live preset controls and external-launch state contract, and the import/reimport example mirrors the cleaner lightmap-state result without copying the full production logic.
 
 ## Example Tree
 

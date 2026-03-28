@@ -68,9 +68,9 @@ A common four-tool setup can use these PythonEditorUtility tabs:
 - `Build Lighting`: precheck, build-lighting, and linked lighting actions
 - `Lightmap Resolution`: resolution filters, selection table, and asset or instance actions
 - `Static Mesh Pipeline`: export and import paths, audit summaries, and risk filtering
-- `Blender UV Fixer Pipeline`: headless Blender batch execution with configurable folders
+- `Blender UV Fixer Pipeline`: preset-aware external Blender batch execution with configurable folders and optional UCX collision exclusion during UV-only runs
 
-The shipped example under `Examples/ProjectLayout/` follows that same four-tool structure. It is intentionally trimmed: the filenames, tab names, controller boundaries, and script mapping mirror a realistic project-owned integration, but the example backends stay lightweight so the plugin does not embed several thousand lines of project-specific production logic.
+The shipped example under `Examples/ProjectLayout/` follows that same four-tool structure. It is intentionally trimmed: the filenames, tab names, controller boundaries, and script mapping mirror a realistic project-owned integration, but the example backends stay lightweight so the plugin does not embed several thousand lines of project-specific production logic. The Blender example now mirrors the preset-discovery surface and the external-launch contract, while the import/reimport example mirrors the cleaner post-reimport lightmap-state contract without shipping the full production implementation.
 
 ## Generic Host Features
 
