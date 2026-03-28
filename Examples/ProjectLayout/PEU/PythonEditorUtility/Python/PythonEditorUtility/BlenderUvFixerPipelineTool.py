@@ -1,3 +1,5 @@
+import os
+
 from .ProjectIntegration import call_script, read_existing_state, write_tool_snapshot
 
 
@@ -10,22 +12,36 @@ _UI_STATE = {
 }
 
 
+def _normalize_folder(value: str, fallback: str) -> str:
+    candidate = str(value or fallback or "").strip()
+    if not candidate:
+        return ""
+    return os.path.abspath(os.path.normpath(os.path.expanduser(candidate)))
+
+
+def _normalize_file(value: str, fallback: str) -> str:
+    candidate = str(value or fallback or "").strip()
+    if not candidate:
+        return ""
+    return os.path.abspath(os.path.normpath(os.path.expanduser(candidate)))
+
+
 def _ensure_defaults():
     defaults = call_script("peu_example_blender_defaults", "UE_Lightmap_UV_Fixer_Batch.py", "get_default_settings")
     if not _UI_STATE["source_folder"]:
-        _UI_STATE["source_folder"] = str(defaults.get("source_dir") or "")
+        _UI_STATE["source_folder"] = _normalize_folder(defaults.get("source_dir"), "")
     if not _UI_STATE["destination_folder"]:
-        _UI_STATE["destination_folder"] = str(defaults.get("destination_dir") or "")
+        _UI_STATE["destination_folder"] = _normalize_folder(defaults.get("destination_dir"), "")
     if not _UI_STATE["blender_executable"]:
-        _UI_STATE["blender_executable"] = str(defaults.get("blender_executable") or "")
+        _UI_STATE["blender_executable"] = _normalize_file(defaults.get("blender_executable"), "")
 
 
 def _load_saved_state():
     _ensure_defaults()
     payload = read_existing_state(_STATE_FILE)
-    _UI_STATE["source_folder"] = str(payload.get("source_folder") or _UI_STATE["source_folder"])
-    _UI_STATE["destination_folder"] = str(payload.get("destination_folder") or _UI_STATE["destination_folder"])
-    _UI_STATE["blender_executable"] = str(payload.get("blender_executable") or _UI_STATE["blender_executable"])
+    _UI_STATE["source_folder"] = _normalize_folder(payload.get("source_folder"), _UI_STATE["source_folder"])
+    _UI_STATE["destination_folder"] = _normalize_folder(payload.get("destination_folder"), _UI_STATE["destination_folder"])
+    _UI_STATE["blender_executable"] = _normalize_file(payload.get("blender_executable"), _UI_STATE["blender_executable"])
 
 
 def _save(runner_name: str):
@@ -43,17 +59,22 @@ def _save(runner_name: str):
     write_tool_snapshot(_STATE_FILE, _STATUS_FILE, payload)
 
 
-def refresh_status():
-    _load_saved_state()
+def _snapshot_preview(reload_saved_state: bool = True):
+    if reload_saved_state:
+        _load_saved_state()
     _save("peu_example_blender_preview")
+
+
+def refresh_status():
+    _snapshot_preview(reload_saved_state=True)
 
 
 def set_paths(source_folder: str, destination_folder: str, blender_executable: str):
     _load_saved_state()
-    _UI_STATE["source_folder"] = str(source_folder or _UI_STATE["source_folder"])
-    _UI_STATE["destination_folder"] = str(destination_folder or _UI_STATE["destination_folder"])
-    _UI_STATE["blender_executable"] = str(blender_executable or _UI_STATE["blender_executable"])
-    _save("peu_example_blender_preview")
+    _UI_STATE["source_folder"] = _normalize_folder(source_folder, _UI_STATE["source_folder"])
+    _UI_STATE["destination_folder"] = _normalize_folder(destination_folder, _UI_STATE["destination_folder"])
+    _UI_STATE["blender_executable"] = _normalize_file(blender_executable, _UI_STATE["blender_executable"])
+    _snapshot_preview(reload_saved_state=False)
 
 
 def run_pipeline():
