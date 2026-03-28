@@ -17,14 +17,21 @@ _UI_STATE = {
 }
 
 
+def _normalize_folder(value: str, fallback: str) -> str:
+    candidate = str(value or fallback or "").strip()
+    if not candidate:
+        return ""
+    return os.path.abspath(os.path.normpath(os.path.expanduser(candidate)))
+
+
 def _ensure_defaults():
     if not _UI_STATE["export_source"] or not _UI_STATE["export_destination"]:
         export_settings = call_script("peu_example_export_defaults", "bulk_export_static_meshes.py", "get_default_settings")
         _UI_STATE["export_source"] = str(export_settings.get("source") or "/Game")
-        _UI_STATE["export_destination"] = str(export_settings.get("destination") or "")
+        _UI_STATE["export_destination"] = _normalize_folder(export_settings.get("destination"), "")
     if not _UI_STATE["import_source"] or not _UI_STATE["import_destination"]:
         import_settings = call_script("peu_example_import_defaults", "bulk_reimport_static_meshes.py", "get_default_settings")
-        _UI_STATE["import_source"] = str(import_settings.get("source") or "")
+        _UI_STATE["import_source"] = _normalize_folder(import_settings.get("source"), "")
         _UI_STATE["import_destination"] = str(import_settings.get("destination") or "/Game")
 
 
@@ -37,8 +44,8 @@ def _load_saved_state():
     sort_direction = str(payload.get("sort_direction") or _UI_STATE["sort_direction"])
     _UI_STATE["sort_direction"] = sort_direction if sort_direction in _SORT_DIRECTIONS else "Desc"
     _UI_STATE["export_source"] = str(payload.get("export_source") or _UI_STATE["export_source"])
-    _UI_STATE["export_destination"] = str(payload.get("export_destination") or _UI_STATE["export_destination"])
-    _UI_STATE["import_source"] = str(payload.get("import_source") or _UI_STATE["import_source"])
+    _UI_STATE["export_destination"] = _normalize_folder(payload.get("export_destination"), _UI_STATE["export_destination"])
+    _UI_STATE["import_source"] = _normalize_folder(payload.get("import_source"), _UI_STATE["import_source"])
     _UI_STATE["import_destination"] = str(payload.get("import_destination") or _UI_STATE["import_destination"])
     _UI_STATE["selected_row_keys"] = [str(key) for key in payload.get("selected_row_keys", [])]
 
@@ -76,8 +83,8 @@ def refresh_status():
 def set_paths(export_source: str, export_destination: str, import_source: str, import_destination: str):
     _load_saved_state()
     _UI_STATE["export_source"] = str(export_source or _UI_STATE["export_source"])
-    _UI_STATE["export_destination"] = str(export_destination or _UI_STATE["export_destination"])
-    _UI_STATE["import_source"] = str(import_source or _UI_STATE["import_source"])
+    _UI_STATE["export_destination"] = _normalize_folder(export_destination, _UI_STATE["export_destination"])
+    _UI_STATE["import_source"] = _normalize_folder(import_source, _UI_STATE["import_source"])
     _UI_STATE["import_destination"] = str(import_destination or _UI_STATE["import_destination"])
     _snapshot()
 

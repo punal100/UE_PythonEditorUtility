@@ -1068,6 +1068,64 @@ namespace PythonEditorUtility
         return FMargin(0.0f);
     }
 
+    static bool IsLikelyAssetPath(const FString &Value)
+    {
+        return Value.StartsWith(TEXT("/Game")) || Value.StartsWith(TEXT("/Engine")) || Value.StartsWith(TEXT("/Script"));
+    }
+
+    static FString FindExistingParentDirectory(const FString &Path)
+    {
+        FString Candidate = Path;
+        IFileManager &FileManager = IFileManager::Get();
+
+        while (!Candidate.IsEmpty())
+        {
+            if (FileManager.DirectoryExists(*Candidate))
+            {
+                return Candidate;
+            }
+
+            const FString Parent = FPaths::GetPath(Candidate);
+            if (Parent.IsEmpty() || Parent == Candidate)
+            {
+                break;
+            }
+            Candidate = Parent;
+        }
+
+        return FString();
+    }
+
+    static FString ResolveDialogDefaultDirectory(const FString &RawPath)
+    {
+        FString ProjectDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+        FPaths::NormalizeDirectoryName(ProjectDir);
+
+        FString Candidate = RawPath.TrimStartAndEnd();
+        if (Candidate.IsEmpty() || IsLikelyAssetPath(Candidate))
+        {
+            return ProjectDir;
+        }
+
+        Candidate = FPaths::ConvertRelativePathToFull(Candidate);
+        FPaths::NormalizeFilename(Candidate);
+
+        IFileManager &FileManager = IFileManager::Get();
+        if (FileManager.FileExists(*Candidate))
+        {
+            Candidate = FPaths::GetPath(Candidate);
+        }
+
+        FString ExistingDirectory = FindExistingParentDirectory(Candidate);
+        if (ExistingDirectory.IsEmpty())
+        {
+            return ProjectDir;
+        }
+
+        FPaths::NormalizeDirectoryName(ExistingDirectory);
+        return ExistingDirectory;
+    }
+
     static FString BrowseForDirectory(const FString &Title, const FString &DefaultPath)
     {
         IDesktopPlatform *DesktopPlatform = FDesktopPlatformModule::Get();
@@ -1087,7 +1145,8 @@ namespace PythonEditorUtility
         }
 
         FString SelectedFolder;
-        const bool bOpened = DesktopPlatform->OpenDirectoryDialog(ParentWindowHandle, Title, DefaultPath, SelectedFolder);
+        const FString InitialDirectory = ResolveDialogDefaultDirectory(DefaultPath);
+        const bool bOpened = DesktopPlatform->OpenDirectoryDialog(ParentWindowHandle, Title, InitialDirectory, SelectedFolder);
         return bOpened ? SelectedFolder : FString();
     }
 
@@ -1110,10 +1169,11 @@ namespace PythonEditorUtility
         }
 
         TArray<FString> SelectedFiles;
+        const FString InitialDirectory = ResolveDialogDefaultDirectory(DefaultPath);
         const bool bOpened = DesktopPlatform->OpenFileDialog(
             ParentWindowHandle,
             Title,
-            DefaultPath,
+            InitialDirectory,
             DefaultFile,
             FileTypes,
             EFileDialogFlags::None,
