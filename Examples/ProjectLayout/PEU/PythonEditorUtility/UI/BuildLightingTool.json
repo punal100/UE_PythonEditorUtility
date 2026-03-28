@@ -1,0 +1,125 @@
+{
+  "TabLabel": "Build Lighting",
+  "StatusFile": "BuildLightingStatus.txt",
+  "StateFile": "BuildLightingState.json",
+  "InitPyCmd": "import PythonEditorUtility.BuildLightingTool as tool; tool.refresh_status()",
+  "Root": {
+    "SVerticalBox": {
+      "Slots": [
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [10, 10, 10, 10],
+            "Content": {
+              "STextBlock": {
+                "Text": "Example Build Lighting tab based on a project-owned production tool. Keep real project policy in Scripts/build_level_lighting.py."
+              }
+            }
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SUniformGridPanel": {
+            "SlotPadding": [6, 6, 6, 6],
+            "Slots": [
+              {
+                "Column_Row": [0, 0],
+                "SButton": {
+                  "Text": "Refresh Status",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.refresh_status()"
+                }
+              },
+              {
+                "Column_Row": [1, 0],
+                "SButton": {
+                  "Text": "Run Precheck",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.run_precheck()"
+                }
+              },
+              {
+                "Column_Row": [2, 0],
+                "SButton": {
+                  "Text": "Build Lighting",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.build_lighting()"
+                }
+              },
+              {
+                "Column_Row": [0, 1],
+                "SButton": {
+                  "Text": "Lightmap Resolution",
+                  "OnClick": "PEU:OpenTool:LightmapResolutionTool"
+                }
+              },
+              {
+                "Column_Row": [1, 1],
+                "SButton": {
+                  "Text": "Open Options File",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.open_options_file()"
+                }
+              },
+              {
+                "Column_Row": [2, 1],
+                "SButton": {
+                  "Text": "Native Lighting Actions",
+                  "OnClick": "import PythonEditorUtility.BuildLightingTool as tool; tool.show_native_lighting_actions()"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [8, 6, 8, 6],
+            "Content": {
+              "SVerticalBox": {
+                "Slots": [
+                  {
+                    "AutoHeight": true,
+                    "STextBlock": {
+                      "Text": "Idle",
+                      "StateKey": "progress_text"
+                    }
+                  },
+                  {
+                    "AutoHeight": true,
+                    "SProgressBar": {
+                      "StateKey": "progress_percent",
+                      "Percent": 0.0
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [8, 8, 8, 8],
+            "Content": {
+              "SMultiLineEditableTextBox": {
+                "StateKey": "status_text",
+                "IsReadOnly": true,
+                "Text": "Loading status..."
+              }
+            }
+          }
+        },
+        {
+          "FillHeight": 1.0,
+          "SBorder": {
+            "Padding": [8, 8, 8, 8],
+            "Content": {
+              "SMultiLineEditableTextBox": {
+                "StateKey": "detail_text",
+                "IsReadOnly": true,
+                "Text": "Loading details..."
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

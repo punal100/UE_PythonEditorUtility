@@ -1,0 +1,261 @@
+{
+  "TabLabel": "Lightmap Resolution",
+  "StatusFile": "LightmapResolutionStatus.txt",
+  "StateFile": "LightmapResolutionState.json",
+  "InitPyCmd": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.refresh_status()",
+  "Root": {
+    "SVerticalBox": {
+      "Slots": [
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [10, 10, 10, 10],
+            "Content": {
+              "STextBlock": {
+                "Text": "Example Lightmap Resolution tab shaped like the live project: filters, a selected-rows table, and instance or asset actions."
+              }
+            }
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SUniformGridPanel": {
+            "SlotPadding": [6, 6, 6, 6],
+            "Slots": [
+              {
+                "Column_Row": [0, 0],
+                "STextBlock": {
+                  "Text": "Resolution"
+                }
+              },
+              {
+                "Column_Row": [1, 0],
+                "SEditableTextBox": {
+                  "Aka": "ResolutionInput",
+                  "StateKey": "resolution",
+                  "Text": "64",
+                  "OnTextCommitted": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.set_resolution(%Text%)"
+                }
+              },
+              {
+                "Column_Row": [2, 0],
+                "SCheckBox": {
+                  "Aka": "OpenLevelOnly",
+                  "StateKey": "open_level_only",
+                  "Text": "Open Level Only",
+                  "IsChecked": false,
+                  "OnCheckStateChanged": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.set_open_level_only(%Checked%)"
+                }
+              },
+              {
+                "Column_Row": [3, 0],
+                "SCheckBox": {
+                  "Aka": "OverrideOnly",
+                  "StateKey": "override_only",
+                  "Text": "Override Only",
+                  "IsChecked": false,
+                  "OnCheckStateChanged": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.set_override_only(%Checked%)"
+                }
+              },
+              {
+                "Column_Row": [0, 1],
+                "STextBlock": {
+                  "Text": "Sort"
+                }
+              },
+              {
+                "Column_Row": [1, 1],
+                "SComboBox": {
+                  "Aka": "SortColumn",
+                  "StateKey": "sort_column",
+                  "Selected": "Level",
+                  "Options": [
+                    "Level",
+                    "Actor",
+                    "Mesh",
+                    "Effective",
+                    "Asset",
+                    "Override"
+                  ],
+                  "OnSelectionChanged": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.set_sort(%Widget:SortColumn%, %Widget:SortDirection%)"
+                }
+              },
+              {
+                "Column_Row": [2, 1],
+                "STextBlock": {
+                  "Text": "Direction"
+                }
+              },
+              {
+                "Column_Row": [3, 1],
+                "SComboBox": {
+                  "Aka": "SortDirection",
+                  "StateKey": "sort_direction",
+                  "Selected": "Asc",
+                  "Options": ["Asc", "Desc"],
+                  "OnSelectionChanged": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.set_sort(%Widget:SortColumn%, %Widget:SortDirection%)"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SUniformGridPanel": {
+            "SlotPadding": [6, 6, 6, 6],
+            "Slots": [
+              {
+                "Column_Row": [0, 0],
+                "SButton": {
+                  "Text": "Refresh",
+                  "OnClick": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.refresh_status()"
+                }
+              },
+              {
+                "Column_Row": [1, 0],
+                "SButton": {
+                  "Text": "Apply To Instance",
+                  "OnClick": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.apply_to_instance()"
+                }
+              },
+              {
+                "Column_Row": [2, 0],
+                "SButton": {
+                  "Text": "Clear Overrides",
+                  "OnClick": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.clear_instance_override()"
+                }
+              },
+              {
+                "Column_Row": [3, 0],
+                "SButton": {
+                  "Text": "Apply To Asset",
+                  "OnClick": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.apply_to_asset()"
+                }
+              },
+              {
+                "Column_Row": [0, 1],
+                "SButton": {
+                  "Text": "Open Selected Actor",
+                  "OnClick": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.open_selected_actor()"
+                }
+              },
+              {
+                "Column_Row": [1, 1],
+                "SButton": {
+                  "Text": "Sync Selected Asset",
+                  "OnClick": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.sync_selected_asset()"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [8, 6, 8, 6],
+            "Content": {
+              "SVerticalBox": {
+                "Slots": [
+                  {
+                    "AutoHeight": true,
+                    "STextBlock": {
+                      "Text": "Idle",
+                      "StateKey": "progress_text"
+                    }
+                  },
+                  {
+                    "AutoHeight": true,
+                    "SProgressBar": {
+                      "StateKey": "progress_percent",
+                      "Percent": 0.0
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [8, 8, 8, 8],
+            "Content": {
+              "SMultiLineEditableTextBox": {
+                "StateKey": "status_text",
+                "IsReadOnly": true,
+                "Text": "Loading status..."
+              }
+            }
+          }
+        },
+        {
+          "FillHeight": 1.0,
+          "SSplitter": {
+            "Orientation": "Vertical",
+            "Slots": [
+              {
+                "Value": 0.58,
+                "SBorder": {
+                  "Padding": [8, 8, 8, 8],
+                  "Content": {
+                    "SStateTable": {
+                      "RowsStateKey": "rows",
+                      "SelectedKeysStateKey": "selected_row_keys",
+                      "SelectionMode": "Multi",
+                      "OnSelectionChanged": "import PythonEditorUtility.LightmapResolutionTool as tool; tool.set_selected_rows(%SelectedKeys%)",
+                      "Columns": [
+                        {
+                          "Id": "Level",
+                          "Title": "Level",
+                          "Field": "level",
+                          "FillWidth": 1.2
+                        },
+                        {
+                          "Id": "Actor",
+                          "Title": "Actor",
+                          "Field": "actor",
+                          "FillWidth": 1.0
+                        },
+                        {
+                          "Id": "Mesh",
+                          "Title": "Mesh",
+                          "Field": "mesh",
+                          "FillWidth": 0.9
+                        },
+                        {
+                          "Id": "Effective",
+                          "Title": "Effective",
+                          "Field": "effective",
+                          "FillWidth": 0.6
+                        },
+                        {
+                          "Id": "Override",
+                          "Title": "Override",
+                          "Field": "override",
+                          "FillWidth": 0.6
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "Value": 0.42,
+                "SBorder": {
+                  "Padding": [8, 8, 8, 8],
+                  "Content": {
+                    "SMultiLineEditableTextBox": {
+                      "StateKey": "detail_text",
+                      "IsReadOnly": true,
+                      "Text": "Select a row to inspect its details."
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

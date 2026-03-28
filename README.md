@@ -1,8 +1,8 @@
 # PythonEditorUtility
 
-PythonEditorUtility is a standalone Unreal Editor framework plugin. It hosts project-owned tabs and Python callbacks, but it does not own a project's workflow policy.
+PythonEditorUtility is a standalone Unreal Editor framework plugin. It owns tab discovery, widget hosting, Python callback execution, and generic editor helpers, while the project owns the actual workflows under `PEU/` and `Scripts/`.
 
-The rule for downstream teams is strict: configure project-owned integration content and do not modify plugin source just to add or change project behavior.
+The rule for downstream teams is unchanged: configure project-owned integration content and do not modify plugin source just to add or change project behavior.
 
 ## Standalone Contract
 
@@ -17,7 +17,7 @@ The default contract ships in `Plugins/PythonEditorUtility/Config/DefaultPythonE
 
 ## What The Plugin Owns
 
-- native editor tab registration and menu registration
+- native editor tab registration and the single `Tools > Python > Editor Utility Widget` submenu
 - config-driven discovery of tool definitions from `UiRoot`
 - generic Slate widget hosting for JSON-defined layouts
 - Python execution for callback strings and `InitPyCmd`
@@ -29,7 +29,7 @@ The default contract ships in `Plugins/PythonEditorUtility/Config/DefaultPythonE
 
 ## What A Project Owns
 
-A project that uses the plugin owns the integration layer that the plugin points at. A typical integration layout looks like this:
+A project that uses the plugin owns the integration layer that the plugin points at. A typical project-owned layout can look like this:
 
 ```text
 Project/
@@ -40,17 +40,41 @@ Project/
 |       |-- Python/
 |       |   `-- PythonEditorUtility/
 |       |       |-- ProjectIntegration.py
-|       |       `-- StarterActionsTool.py
+|       |       |-- BuildLightingTool.py
+|       |       |-- LightmapResolutionTool.py
+|       |       |-- StaticMeshPipelineTool.py
+|       |       `-- BlenderUvFixerPipelineTool.py
 |       |-- State/
 |       `-- UI/
+|           |-- BuildLightingTool.json
+|           |-- LightmapResolutionTool.json
+|           |-- StaticMeshPipelineTool.json
+|           `-- BlenderUvFixerPipelineTool.json
 `-- Scripts/
+	|-- build_level_lighting.py
+	|-- audit_static_mesh_lightmaps.py
+	|-- bulk_export_static_meshes.py
+	|-- bulk_reimport_static_meshes.py
+	|-- project_path_utils.py
+	`-- UE_Lightmap_UV_Fixer_Batch.py
 ```
 
 In that layout, the plugin stays standalone while the project owns the tool JSON, controller modules, and backend scripts.
 
+## Current Tool Surface
+
+A common four-tool setup can use these PythonEditorUtility tabs:
+
+- `Build Lighting`: precheck, build-lighting, and linked lighting actions
+- `Lightmap Resolution`: resolution filters, selection table, and asset or instance actions
+- `Static Mesh Pipeline`: export and import paths, audit summaries, and risk filtering
+- `Blender UV Fixer Pipeline`: headless Blender batch execution with configurable folders
+
+The shipped example under `Examples/ProjectLayout/` follows that same four-tool structure. It is intentionally trimmed: the filenames, tab names, controller boundaries, and script mapping mirror a realistic project-owned integration, but the example backends stay lightweight so the plugin does not embed several thousand lines of project-specific production logic.
+
 ## Generic Host Features
 
-The standalone host discovers each `*.json` file under `UiRoot` and registers one tab plus one menu entry for it. A tool definition can set `TabLabel`, `StatusFile`, `StateFile`, `Tooltip`, and `InitPyCmd` without changing native code.
+The standalone host discovers each `*.json` file under `UiRoot` and registers one tab plus one submenu entry without native code changes. A tool definition can set `TabLabel`, `StatusFile`, `StateFile`, `Tooltip`, and `InitPyCmd`.
 
 The current JSON widget surface includes:
 
@@ -88,21 +112,21 @@ State-backed bindings are also project-owned:
 - `StateKey` maps widget values to JSON state fields
 - `InitPyCmd` can bootstrap a tab before the user clicks anything
 
-## Example Starter
+## Example Project Layout
 
-`Plugins/PythonEditorUtility/Examples/ProjectLayout/` now ships a neutral starter integration instead of a repository-specific workflow mirror.
+`Plugins/PythonEditorUtility/Examples/ProjectLayout/` is the shipped reference integration for teams starting from the same architecture shown by this plugin.
 
 The example demonstrates:
 
-- dynamic discovery from project-owned `UI/*.json`
-- `InitPyCmd` bootstrapping through project-owned controllers
-- `StateFile` and `StateKey` rehydration
-- `%Widget:*%` placeholders passed into project-owned Python functions
-- adapter calls from `ProjectIntegration.py` into project-owned scripts under `Scripts/`
+- one JSON file per discovered tool under `PEU/PythonEditorUtility/UI/`
+- one controller module per tool under `PEU/PythonEditorUtility/Python/PythonEditorUtility/`
+- an adapter boundary in `ProjectIntegration.py`
+- lightweight example scripts that use the same filenames and responsibilities as a project-owned production integration
+- runtime state written under `PEU/PythonEditorUtility/State/`
 
 Use that example as a template for your own integration layer. Replace the project-owned files with your project's workflows and keep the plugin unchanged.
 
-The starter actions example now includes a browse-enabled filesystem row so downstream projects have a concrete reference for `SHorizontalBox` label/input/button layouts. For a compact pattern catalog, see `Plugins/PythonEditorUtility/Docs/UI-PATTERNS.md`.
+For a compact widget pattern catalog, see `Plugins/PythonEditorUtility/Docs/UI-PATTERNS.md`.
 
 ## Usage
 

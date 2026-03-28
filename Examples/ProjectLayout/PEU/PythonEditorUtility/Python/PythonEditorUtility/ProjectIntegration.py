@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 
 import unreal
@@ -6,10 +7,6 @@ import unreal
 
 def get_project_dir() -> str:
     return os.path.abspath(os.path.normpath(unreal.Paths.project_dir()))
-
-
-def get_default_workspace_root() -> str:
-    return get_project_dir()
 
 
 def get_integration_root() -> str:
@@ -56,3 +53,26 @@ def call_script(module_name: str, script_file_name: str, function_name: str, *ar
     if function is None:
         raise RuntimeError(f"{script_file_name} does not define {function_name}()")
     return function(*args, **kwargs)
+
+
+def write_tool_snapshot(state_file_name: str, status_file_name: str, payload: dict):
+    state_path = get_state_file_path(state_file_name)
+    status_path = get_status_file_path(status_file_name)
+    status_text = str(payload.get("status_text") or "")
+
+    with open(state_path, "w", encoding="utf-8") as state_file:
+        json.dump(payload, state_file, indent=2)
+
+    with open(status_path, "w", encoding="utf-8") as status_file:
+        status_file.write(status_text)
+
+    for line in status_text.splitlines():
+        unreal.log(line)
+
+
+def read_existing_state(state_file_name: str) -> dict:
+    try:
+        with open(get_state_file_path(state_file_name), "r", encoding="utf-8") as state_file:
+            return json.load(state_file)
+    except Exception:
+        return {}

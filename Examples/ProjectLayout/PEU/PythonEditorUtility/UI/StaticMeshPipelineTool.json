@@ -1,0 +1,315 @@
+{
+  "TabLabel": "Static Mesh Pipeline",
+  "StatusFile": "StaticMeshPipelineStatus.txt",
+  "StateFile": "StaticMeshPipelineState.json",
+  "InitPyCmd": "import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.refresh_status()",
+  "Root": {
+    "SScrollBox": {
+      "Slots": [
+        {
+          "AutoHeight": true,
+          "SVerticalBox": {
+            "Slots": [
+              {
+                "AutoHeight": true,
+                "SBorder": {
+                  "Padding": [10, 10, 10, 10],
+                  "Content": {
+                    "STextBlock": {
+                      "Text": "Example Static Mesh Pipeline tab based on the live PEU workflow: path editing, audit summaries, and export or import actions."
+                    }
+                  }
+                }
+              },
+              {
+                "AutoHeight": true,
+                "SBorder": {
+                  "Padding": [8, 6, 8, 6],
+                  "Content": {
+                    "SVerticalBox": {
+                      "Slots": [
+                        {
+                          "AutoHeight": true,
+                          "SHorizontalBox": {
+                            "Slots": [
+                              {
+                                "AutoWidth": true,
+                                "Padding": [0, 0, 6, 6],
+                                "SButton": {
+                                  "Text": "Refresh",
+                                  "OnClick": "import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.refresh_status()"
+                                }
+                              },
+                              {
+                                "AutoWidth": true,
+                                "Padding": [0, 0, 6, 6],
+                                "SButton": {
+                                  "Text": "Export All",
+                                  "OnClick": "import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.run_export()"
+                                }
+                              },
+                              {
+                                "AutoWidth": true,
+                                "Padding": [0, 0, 6, 6],
+                                "SButton": {
+                                  "Text": "Import/Reimport All",
+                                  "OnClick": "import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.run_import_reimport()"
+                                }
+                              },
+                              {
+                                "AutoWidth": true,
+                                "SButton": {
+                                  "Text": "Open Audit Report",
+                                  "OnClick": "import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.open_last_audit_report()"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "AutoHeight": true,
+                          "Padding": [0, 0, 0, 6],
+                          "SHorizontalBox": {
+                            "Slots": [
+                              {
+                                "AutoWidth": true,
+                                "Padding": [0, 0, 8, 0],
+                                "STextBlock": { "Text": "Export Source" }
+                              },
+                              {
+                                "FillWidth": 1.0,
+                                "Padding": [0, 0, 6, 0],
+                                "SEditableTextBox": {
+                                  "Aka": "ExportSource",
+                                  "StateKey": "export_source",
+                                  "Text": "/Game",
+                                  "OnTextCommitted": "import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.set_paths(%Widget:ExportSource%, %Widget:ExportDestination%, %Widget:ImportSource%, %Widget:ImportDestination%)"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "AutoHeight": true,
+                          "Padding": [0, 0, 0, 6],
+                          "SHorizontalBox": {
+                            "Slots": [
+                              {
+                                "AutoWidth": true,
+                                "Padding": [0, 0, 8, 0],
+                                "STextBlock": { "Text": "Export Destination" }
+                              },
+                              {
+                                "FillWidth": 1.0,
+                                "Padding": [0, 0, 6, 0],
+                                "SEditableTextBox": {
+                                  "Aka": "ExportDestination",
+                                  "StateKey": "export_destination",
+                                  "Text": "",
+                                  "OnTextCommitted": "import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.set_paths(%Widget:ExportSource%, %Widget:ExportDestination%, %Widget:ImportSource%, %Widget:ImportDestination%)"
+                                }
+                              },
+                              {
+                                "AutoWidth": true,
+                                "SButton": {
+                                  "Text": "Browse",
+                                  "OnClick": "PEU:BrowseFolder:ExportDestination"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "AutoHeight": true,
+                          "Padding": [0, 0, 0, 6],
+                          "SHorizontalBox": {
+                            "Slots": [
+                              {
+                                "AutoWidth": true,
+                                "Padding": [0, 0, 8, 0],
+                                "STextBlock": { "Text": "Import Source" }
+                              },
+                              {
+                                "FillWidth": 1.0,
+                                "Padding": [0, 0, 6, 0],
+                                "SEditableTextBox": {
+                                  "Aka": "ImportSource",
+                                  "StateKey": "import_source",
+                                  "Text": "",
+                                  "OnTextCommitted": "import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.set_paths(%Widget:ExportSource%, %Widget:ExportDestination%, %Widget:ImportSource%, %Widget:ImportDestination%)"
+                                }
+                              },
+                              {
+                                "AutoWidth": true,
+                                "SButton": {
+                                  "Text": "Browse",
+                                  "OnClick": "PEU:BrowseFolder:ImportSource"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "AutoHeight": true,
+                          "Padding": [0, 0, 0, 6],
+                          "SHorizontalBox": {
+                            "Slots": [
+                              {
+                                "AutoWidth": true,
+                                "Padding": [0, 0, 8, 0],
+                                "STextBlock": { "Text": "Import Destination" }
+                              },
+                              {
+                                "FillWidth": 1.0,
+                                "SEditableTextBox": {
+                                  "Aka": "ImportDestination",
+                                  "StateKey": "import_destination",
+                                  "Text": "/Game",
+                                  "OnTextCommitted": "import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.set_paths(%Widget:ExportSource%, %Widget:ExportDestination%, %Widget:ImportSource%, %Widget:ImportDestination%)"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "AutoHeight": true,
+                          "SHorizontalBox": {
+                            "Slots": [
+                              {
+                                "AutoWidth": true,
+                                "Padding": [0, 0, 12, 0],
+                                "SCheckBox": {
+                                  "Aka": "RisksOnly",
+                                  "StateKey": "risks_only",
+                                  "Text": "Risks Only",
+                                  "IsChecked": false,
+                                  "OnCheckStateChanged": "import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.set_risks_only(%Checked%)"
+                                }
+                              },
+                              {
+                                "AutoWidth": true,
+                                "Padding": [0, 0, 6, 0],
+                                "STextBlock": { "Text": "Sort" }
+                              },
+                              {
+                                "AutoWidth": true,
+                                "Padding": [0, 0, 6, 0],
+                                "SComboBox": {
+                                  "Aka": "SortColumn",
+                                  "StateKey": "sort_column",
+                                  "Selected": "Result",
+                                  "Options": [
+                                    "Asset",
+                                    "Action",
+                                    "Result",
+                                    "Overlap",
+                                    "Wrapping"
+                                  ],
+                                  "OnSelectionChanged": "import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.set_sort(%Widget:SortColumn%, %Widget:SortDirection%)"
+                                }
+                              },
+                              {
+                                "AutoWidth": true,
+                                "SComboBox": {
+                                  "Aka": "SortDirection",
+                                  "StateKey": "sort_direction",
+                                  "Selected": "Desc",
+                                  "Options": ["Asc", "Desc"],
+                                  "OnSelectionChanged": "import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.set_sort(%Widget:SortColumn%, %Widget:SortDirection%)"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "AutoHeight": true,
+                "SBorder": {
+                  "Padding": [8, 8, 8, 8],
+                  "Content": {
+                    "SMultiLineEditableTextBox": {
+                      "StateKey": "status_text",
+                      "IsReadOnly": true,
+                      "Text": "Loading status..."
+                    }
+                  }
+                }
+              },
+              {
+                "FillHeight": 1.0,
+                "SSplitter": {
+                  "Orientation": "Vertical",
+                  "Slots": [
+                    {
+                      "Value": 0.55,
+                      "SBorder": {
+                        "Padding": [8, 8, 8, 8],
+                        "Content": {
+                          "SStateTable": {
+                            "RowsStateKey": "rows",
+                            "SelectedKeysStateKey": "selected_row_keys",
+                            "SelectionMode": "Multi",
+                            "OnSelectionChanged": "import PythonEditorUtility.StaticMeshPipelineTool as tool; tool.set_selected_rows(%SelectedKeys%)",
+                            "Columns": [
+                              {
+                                "Id": "Asset",
+                                "Title": "Asset",
+                                "Field": "asset",
+                                "FillWidth": 1.0
+                              },
+                              {
+                                "Id": "Action",
+                                "Title": "Action",
+                                "Field": "action",
+                                "FillWidth": 0.8
+                              },
+                              {
+                                "Id": "Result",
+                                "Title": "Result",
+                                "Field": "result",
+                                "FillWidth": 0.8
+                              },
+                              {
+                                "Id": "Overlap",
+                                "Title": "Overlap",
+                                "Field": "overlap",
+                                "FillWidth": 0.7
+                              },
+                              {
+                                "Id": "Wrapping",
+                                "Title": "Wrapping",
+                                "Field": "wrapping",
+                                "FillWidth": 0.7
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "Value": 0.45,
+                      "SBorder": {
+                        "Padding": [8, 8, 8, 8],
+                        "Content": {
+                          "SMultiLineEditableTextBox": {
+                            "StateKey": "detail_text",
+                            "IsReadOnly": true,
+                            "Text": "Select a row to inspect the latest audit details."
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

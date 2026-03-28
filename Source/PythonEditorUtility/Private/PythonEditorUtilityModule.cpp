@@ -1864,12 +1864,6 @@ public:
             PythonPlugin->RegisterOnPythonInitialized(FSimpleDelegate::CreateStatic(&PythonEditorUtility::EnsurePythonSearchPath));
         }
 
-        PythonEditorUtilityGroup = WorkspaceMenu::GetMenuStructure().GetToolsCategory()->AddGroup(
-            FText::FromString(TEXT("Python Editor Utility")),
-            FText::FromString(TEXT("Project-owned PythonEditorUtility tabs discovered from the configured UI root.")),
-            FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("WorkspaceMenu.AdditionalUI")),
-            true);
-
         for (const PythonEditorUtility::FDiscoveredToolDefinition &Tool : PythonEditorUtility::DiscoveredTools)
         {
             FGlobalTabmanager::Get()->RegisterNomadTabSpawner(
@@ -1877,7 +1871,7 @@ public:
                                         FOnSpawnTab::CreateRaw(this, &FPythonEditorUtilityModule::SpawnDiscoveredToolTab, Tool.TabId))
                 .SetDisplayName(FText::FromString(Tool.TabLabel))
                 .SetTooltipText(FText::FromString(Tool.Tooltip))
-                .SetGroup(PythonEditorUtilityGroup.ToSharedRef());
+                .SetMenuType(ETabSpawnerMenuType::Hidden);
         }
 
         UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FPythonEditorUtilityModule::RegisterMenus));
@@ -1906,35 +1900,42 @@ public:
     }
 
 private:
-    TSharedPtr<FWorkspaceItem> PythonEditorUtilityGroup;
+    void PopulateToolsSubMenu(UToolMenu *SubMenu)
+    {
+        if (SubMenu == nullptr)
+        {
+            return;
+        }
+
+        FToolMenuSection &SubMenuSection = SubMenu->FindOrAddSection(TEXT("PythonEditorUtilityTools"));
+        for (const PythonEditorUtility::FDiscoveredToolDefinition &Tool : PythonEditorUtility::DiscoveredTools)
+        {
+            if (SubMenuSection.FindEntry(Tool.MenuEntryName) == nullptr)
+            {
+                SubMenuSection.AddMenuEntry(
+                    Tool.MenuEntryName,
+                    FText::FromString(Tool.TabLabel),
+                    FText::FromString(Tool.Tooltip),
+                    FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Tool")),
+                    FUIAction(FExecuteAction::CreateRaw(this, &FPythonEditorUtilityModule::OpenDiscoveredToolTab, Tool.TabId)));
+            }
+        }
+    }
 
     void RegisterMenus()
     {
         if (UToolMenu *ToolsMenu = UToolMenus::Get()->ExtendMenu(TEXT("LevelEditor.MainMenu.Tools")))
         {
-            UToolMenu *SubMenu = ToolsMenu->AddSubMenu(
-                FToolMenuOwner(this),
-                TEXT("Python"),
-                TEXT("PythonEditorUtilitySubMenu"),
-                FText::FromString(TEXT("Editor Utility Widget")),
-                FText::FromString(TEXT("Open PythonEditorUtility widgets discovered from the configured UI root.")));
-
-            if (SubMenu != nullptr)
+            FToolMenuSection &PythonSection = ToolsMenu->FindOrAddSection(TEXT("Python"));
+            if (PythonSection.FindEntry(TEXT("PythonEditorUtilitySubMenu")) == nullptr)
             {
-                FToolMenuSection &SubMenuSection = SubMenu->FindOrAddSection(TEXT("PythonEditorUtilityTools"));
-                for (const PythonEditorUtility::FDiscoveredToolDefinition &Tool : PythonEditorUtility::DiscoveredTools)
-                {
-                    if (SubMenuSection.FindEntry(Tool.MenuEntryName) == nullptr)
-                    {
-                        SubMenuSection.AddMenuEntry(
-                            Tool.MenuEntryName,
-                            FText::FromString(Tool.TabLabel),
-                            FText::FromString(Tool.Tooltip),
-                            FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Tool")),
-                            FUIAction(FExecuteAction::CreateRaw(this, &FPythonEditorUtilityModule::OpenDiscoveredToolTab, Tool.TabId)));
-                    }
-                }
-                UToolMenus::Get()->RefreshMenuWidget(SubMenu->GetMenuName());
+                PythonSection.AddSubMenu(
+                    TEXT("PythonEditorUtilitySubMenu"),
+                    FText::FromString(TEXT("Editor Utility Widget")),
+                    FText::FromString(TEXT("Open PythonEditorUtility widgets discovered from the configured UI root.")),
+                    FNewToolMenuDelegate::CreateRaw(this, &FPythonEditorUtilityModule::PopulateToolsSubMenu),
+                    false,
+                    FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("WorkspaceMenu.AdditionalUI")));
             }
         }
 

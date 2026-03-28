@@ -1,0 +1,203 @@
+{
+  "TabLabel": "Blender UV Fixer Pipeline",
+  "StatusFile": "BlenderUvFixerPipelineStatus.txt",
+  "StateFile": "BlenderUvFixerPipelineState.json",
+  "InitPyCmd": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.refresh_status()",
+  "Root": {
+    "SVerticalBox": {
+      "Slots": [
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [10, 10, 10, 10],
+            "Content": {
+              "STextBlock": {
+                "Text": "Example Blender UV Fixer Pipeline tab shaped like the live project: source and destination paths plus an optional Blender executable override."
+              }
+            }
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SHorizontalBox": {
+            "Slots": [
+              {
+                "AutoWidth": true,
+                "Padding": [0, 0, 6, 6],
+                "SButton": {
+                  "Text": "Refresh",
+                  "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.refresh_status()"
+                }
+              },
+              {
+                "AutoWidth": true,
+                "Padding": [0, 0, 6, 6],
+                "SButton": {
+                  "Text": "Run UV Fixer",
+                  "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.run_pipeline()"
+                }
+              },
+              {
+                "AutoWidth": true,
+                "Padding": [0, 0, 6, 6],
+                "SButton": {
+                  "Text": "Open Source Folder",
+                  "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.open_source_folder()"
+                }
+              },
+              {
+                "AutoWidth": true,
+                "SButton": {
+                  "Text": "Open Destination Folder",
+                  "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.open_destination_folder()"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "Padding": [0, 0, 0, 6],
+          "SHorizontalBox": {
+            "Slots": [
+              {
+                "AutoWidth": true,
+                "Padding": [0, 0, 8, 0],
+                "STextBlock": { "Text": "Source Folder" }
+              },
+              {
+                "FillWidth": 1.0,
+                "Padding": [0, 0, 6, 0],
+                "SEditableTextBox": {
+                  "Aka": "SourceFolder",
+                  "StateKey": "source_folder",
+                  "Text": "",
+                  "OnTextCommitted": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_paths(%Widget:SourceFolder%, %Widget:DestinationFolder%, %Widget:BlenderExecutable%)"
+                }
+              },
+              {
+                "AutoWidth": true,
+                "SButton": {
+                  "Text": "Browse",
+                  "OnClick": "PEU:BrowseFolder:SourceFolder"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "Padding": [0, 0, 0, 6],
+          "SHorizontalBox": {
+            "Slots": [
+              {
+                "AutoWidth": true,
+                "Padding": [0, 0, 8, 0],
+                "STextBlock": { "Text": "Destination Folder" }
+              },
+              {
+                "FillWidth": 1.0,
+                "Padding": [0, 0, 6, 0],
+                "SEditableTextBox": {
+                  "Aka": "DestinationFolder",
+                  "StateKey": "destination_folder",
+                  "Text": "",
+                  "OnTextCommitted": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_paths(%Widget:SourceFolder%, %Widget:DestinationFolder%, %Widget:BlenderExecutable%)"
+                }
+              },
+              {
+                "AutoWidth": true,
+                "SButton": {
+                  "Text": "Browse",
+                  "OnClick": "PEU:BrowseFolder:DestinationFolder"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "Padding": [0, 0, 0, 6],
+          "SHorizontalBox": {
+            "Slots": [
+              {
+                "AutoWidth": true,
+                "Padding": [0, 0, 8, 0],
+                "STextBlock": { "Text": "Blender Executable" }
+              },
+              {
+                "FillWidth": 1.0,
+                "Padding": [0, 0, 6, 0],
+                "SEditableTextBox": {
+                  "Aka": "BlenderExecutable",
+                  "StateKey": "blender_executable",
+                  "Text": "",
+                  "OnTextCommitted": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_paths(%Widget:SourceFolder%, %Widget:DestinationFolder%, %Widget:BlenderExecutable%)"
+                }
+              },
+              {
+                "AutoWidth": true,
+                "SButton": {
+                  "Text": "Browse",
+                  "OnClick": "PEU:BrowseFile:BlenderExecutable"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [8, 6, 8, 6],
+            "Content": {
+              "SVerticalBox": {
+                "Slots": [
+                  {
+                    "AutoHeight": true,
+                    "STextBlock": {
+                      "Text": "Idle",
+                      "StateKey": "progress_text"
+                    }
+                  },
+                  {
+                    "AutoHeight": true,
+                    "SProgressBar": {
+                      "StateKey": "progress_percent",
+                      "Percent": 0.0
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [8, 8, 8, 8],
+            "Content": {
+              "SMultiLineEditableTextBox": {
+                "StateKey": "status_text",
+                "IsReadOnly": true,
+                "Text": "Loading status..."
+              }
+            }
+          }
+        },
+        {
+          "FillHeight": 1.0,
+          "SBorder": {
+            "Padding": [8, 8, 8, 8],
+            "Content": {
+              "SMultiLineEditableTextBox": {
+                "StateKey": "detail_text",
+                "IsReadOnly": true,
+                "Text": "Loading details..."
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
