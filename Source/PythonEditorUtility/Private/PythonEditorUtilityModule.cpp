@@ -128,6 +128,9 @@ namespace PythonEditorUtility
         bool bAllowMultiSelect = false;
         TArray<FStateTableColumnDefinition> Columns;
         TArray<FStateTableRowPtr> RowItems;
+        TSharedPtr<FStateTableColumnFieldMap> ColumnToField;
+        FName ActiveSortColumnId = NAME_None;
+        EColumnSortMode::Type ActiveSortMode = EColumnSortMode::None;
         TWeakPtr<FStateTableListView> Widget;
     };
 
@@ -229,6 +232,241 @@ namespace PythonEditorUtility
     static FString NormalizeStateLookupKey(const FString &Value)
     {
         return NormalizeToolLookupKey(Value);
+    }
+
+    static FString GetStateTableCellText(
+        const FStateTableRowPtr &RowItem,
+        const TSharedPtr<FStateTableColumnFieldMap> &ColumnToField,
+        const FName &ColumnName)
+    {
+        if (!RowItem.IsValid() || !ColumnToField.IsValid())
+        {
+            return FString();
+        }
+
+        if (const FString *FieldName = ColumnToField->Find(ColumnName))
+        {
+            if (const FString *Value = RowItem->Cells.Find(*FieldName))
+            {
+                return *Value;
+            }
+        }
+
+        return FString();
+    }
+
+    static bool IsStateTableBlankCellText(const FString &Value)
+    {
+        const FString Trimmed = Value.TrimStartAndEnd();
+        return Trimmed.IsEmpty() || Trimmed == TEXT("-") || Trimmed.Equals(TEXT("none"), ESearchCase::IgnoreCase) || Trimmed.Equals(TEXT("n/a"), ESearchCase::IgnoreCase) || Trimmed.Equals(TEXT("na"), ESearchCase::IgnoreCase);
+    }
+
+    static bool TryParseStateTableNumericCell(const FString &Value, double &OutValue)
+    {
+        FString Candidate = Value.TrimStartAndEnd();
+        if (Candidate.IsEmpty())
+        {
+            return false;
+        }
+
+        Candidate.ReplaceInline(TEXT(","), TEXT(""));
+        if (Candidate.EndsWith(TEXT("%")))
+        {
+            Candidate.LeftChopInline(1, EAllowShrinking::No);
+            Candidate = Candidate.TrimStartAndEnd();
+        }
+
+        if (Candidate.IsEmpty())
+        {
+            return false;
+        }
+
+        return LexTryParseString(OutValue, *Candidate);
+    }
+
+    static int32 CompareStateTableNaturalText(const FString &LeftValue, const FString &RightValue)
+    {
+        const FString Left = LeftValue.TrimStartAndEnd();
+        const FString Right = RightValue.TrimStartAndEnd();
+
+        int32 LeftIndex = 0;
+        int32 RightIndex = 0;
+
+        while (LeftIndex < Left.Len() && RightIndex < Right.Len())
+        {
+            const bool bLeftDigit = FChar::IsDigit(Left[LeftIndex]);
+            const bool bRightDigit = FChar::IsDigit(Right[RightIndex]);
+
+            if (bLeftDigit && bRightDigit)
+            {
+                int32 LeftDigitsStart = LeftIndex;
+                while (LeftDigitsStart < Left.Len() && Left[LeftDigitsStart] == TEXT('0'))
+                {
+                    ++LeftDigitsStart;
+                }
+
+                int32 RightDigitsStart = RightIndex;
+                while (RightDigitsStart < Right.Len() && Right[RightDigitsStart] == TEXT('0'))
+                {
+                    ++RightDigitsStart;
+                }
+
+                int32 LeftDigitsEnd = LeftDigitsStart;
+                while (LeftDigitsEnd < Left.Len() && FChar::IsDigit(Left[LeftDigitsEnd]))
+                {
+                    ++LeftDigitsEnd;
+                }
+
+                int32 RightDigitsEnd = RightDigitsStart;
+                while (RightDigitsEnd < Right.Len() && FChar::IsDigit(Right[RightDigitsEnd]))
+                {
+                    ++RightDigitsEnd;
+                }
+
+                const int32 LeftDigitCount = LeftDigitsEnd - LeftDigitsStart;
+                const int32 RightDigitCount = RightDigitsEnd - RightDigitsStart;
+
+                if (LeftDigitCount != RightDigitCount)
+                {
+                    return LeftDigitCount < RightDigitCount ? -1 : 1;
+                }
+
+                for (int32 DigitIndex = 0; DigitIndex < LeftDigitCount; ++DigitIndex)
+                {
+                    const TCHAR LeftDigit = Left[LeftDigitsStart + DigitIndex];
+                    const TCHAR RightDigit = Right[RightDigitsStart + DigitIndex];
+                    if (LeftDigit != RightDigit)
+                    {
+                        return LeftDigit < RightDigit ? -1 : 1;
+                    }
+                }
+
+                LeftIndex = LeftDigitsEnd;
+                RightIndex = RightDigitsEnd;
+                continue;
+            }
+
+            const TCHAR LeftCharacter = FChar::ToLower(Left[LeftIndex]);
+            const TCHAR RightCharacter = FChar::ToLower(Right[RightIndex]);
+            if (LeftCharacter != RightCharacter)
+            {
+                return LeftCharacter < RightCharacter ? -1 : 1;
+            }
+
+            ++LeftIndex;
+            ++RightIndex;
+        }
+
+        if (LeftIndex < Left.Len())
+        {
+            return 1;
+        }
+
+        if (RightIndex < Right.Len())
+        {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    static int32 CompareStateTableCellText(const FString &LeftValue, const FString &RightValue)
+    {
+        const bool bLeftBlank = IsStateTableBlankCellText(LeftValue);
+        const bool bRightBlank = IsStateTableBlankCellText(RightValue);
+        if (bLeftBlank != bRightBlank)
+        {
+            return bLeftBlank ? 1 : -1;
+        }
+
+        if (bLeftBlank && bRightBlank)
+        {
+            return 0;
+        }
+
+        double LeftNumericValue = 0.0;
+        double RightNumericValue = 0.0;
+        const bool bLeftNumeric = TryParseStateTableNumericCell(LeftValue, LeftNumericValue);
+        const bool bRightNumeric = TryParseStateTableNumericCell(RightValue, RightNumericValue);
+        if (bLeftNumeric && bRightNumeric)
+        {
+            if (LeftNumericValue < RightNumericValue)
+            {
+                return -1;
+            }
+            if (LeftNumericValue > RightNumericValue)
+            {
+                return 1;
+            }
+            return 0;
+        }
+
+        return CompareStateTableNaturalText(LeftValue, RightValue);
+    }
+
+    static EColumnSortMode::Type GetStateTableColumnSortMode(const TSharedPtr<FStateTableWidgetBinding> &Binding, const FName &ColumnId)
+    {
+        if (!Binding.IsValid() || Binding->ActiveSortColumnId != ColumnId)
+        {
+            return EColumnSortMode::None;
+        }
+
+        return Binding->ActiveSortMode;
+    }
+
+    static void SortStateTableRows(const TSharedPtr<FStateTableWidgetBinding> &Binding)
+    {
+        if (!Binding.IsValid() || !Binding->ColumnToField.IsValid() || Binding->ActiveSortColumnId.IsNone() || Binding->ActiveSortMode == EColumnSortMode::None)
+        {
+            return;
+        }
+
+        const FName SortColumnId = Binding->ActiveSortColumnId;
+        const EColumnSortMode::Type SortMode = Binding->ActiveSortMode;
+
+        Binding->RowItems.StableSort(
+            [SortColumnId, SortMode, ColumnToField = Binding->ColumnToField](const FStateTableRowPtr &LeftRow, const FStateTableRowPtr &RightRow)
+            {
+                const FString LeftValue = GetStateTableCellText(LeftRow, ColumnToField, SortColumnId);
+                const FString RightValue = GetStateTableCellText(RightRow, ColumnToField, SortColumnId);
+
+                const int32 Comparison = CompareStateTableCellText(LeftValue, RightValue);
+                if (Comparison == 0)
+                {
+                    return false;
+                }
+
+                return SortMode == EColumnSortMode::Descending ? Comparison > 0 : Comparison < 0;
+            });
+    }
+
+    static void ApplyStateTableColumnSort(
+        const TSharedPtr<FStateTableWidgetBinding> &Binding,
+        const FName &ColumnId,
+        const EColumnSortMode::Type RequestedSortMode)
+    {
+        if (!Binding.IsValid())
+        {
+            return;
+        }
+
+        EColumnSortMode::Type NewSortMode = RequestedSortMode;
+        if (NewSortMode == EColumnSortMode::None)
+        {
+            const bool bSameColumn = Binding->ActiveSortColumnId == ColumnId;
+            NewSortMode = bSameColumn && Binding->ActiveSortMode == EColumnSortMode::Ascending
+                              ? EColumnSortMode::Descending
+                              : EColumnSortMode::Ascending;
+        }
+
+        Binding->ActiveSortColumnId = ColumnId;
+        Binding->ActiveSortMode = NewSortMode;
+        SortStateTableRows(Binding);
+
+        if (const TSharedPtr<FStateTableListView> Widget = Binding->Widget.Pin())
+        {
+            Widget->RequestListRefresh();
+        }
     }
 
     static void SetToolStringBinding(const FName &TabId, const FString &Key, const FString &Value)
@@ -827,6 +1065,8 @@ namespace PythonEditorUtility
                     }
                 }
 
+                SortStateTableRows(Binding);
+
                 if (const TSharedPtr<FStateTableListView> Widget = Binding->Widget.Pin())
                 {
                     Widget->RequestListRefresh();
@@ -1369,6 +1609,7 @@ namespace PythonEditorUtility
 
         TSharedRef<SHeaderRow> HeaderRow = SNew(SHeaderRow);
         TSharedPtr<FStateTableColumnFieldMap> ColumnToField = MakeShared<FStateTableColumnFieldMap>();
+        Binding->ColumnToField = ColumnToField;
 
         const TArray<TSharedPtr<FJsonValue>> *Columns = nullptr;
         if (Definition->TryGetArrayField(TEXT("Columns"), Columns) && Columns != nullptr)
@@ -1401,9 +1642,14 @@ namespace PythonEditorUtility
                 }
 
                 Binding->Columns.Add(Column);
-                ColumnToField->Add(FName(*Column.Id), NormalizeStateLookupKey(Column.Field));
+                const FName ColumnId(*Column.Id);
+                ColumnToField->Add(ColumnId, NormalizeStateLookupKey(Column.Field));
                 HeaderRow->AddColumn(
-                    SHeaderRow::Column(FName(*Column.Id))
+                    SHeaderRow::Column(ColumnId)
+                        .SortMode_Lambda([Binding, ColumnId]()
+                                         { return GetStateTableColumnSortMode(Binding, ColumnId); })
+                        .OnSort_Lambda([Binding](const EColumnSortPriority::Type, const FName &SortedColumnId, const EColumnSortMode::Type NewSortMode)
+                                       { ApplyStateTableColumnSort(Binding, SortedColumnId, NewSortMode); })
                         .DefaultLabel(FText::FromString(Column.Title))
                         .FillWidth(Column.FillWidth));
             }
