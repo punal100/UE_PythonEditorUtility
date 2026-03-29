@@ -102,6 +102,13 @@ namespace PythonEditorUtility
         TWeakPtr<SProgressBar> Widget;
     };
 
+    struct FConditionalVisibilityWidgetBinding
+    {
+        FString StateKey;
+        bool bVisibleWhen = true;
+        TWeakPtr<SBorder> Widget;
+    };
+
     struct FStateTableColumnDefinition
     {
         FString Id;
@@ -186,6 +193,7 @@ namespace PythonEditorUtility
     static TMap<FName, TArray<FTextBlockWidgetBinding>> ToolTextBlockWidgets;
     static TMap<FName, TArray<FMultiLineTextWidgetBinding>> ToolMultiLineTextWidgets;
     static TMap<FName, TArray<FProgressBarWidgetBinding>> ToolProgressBarWidgets;
+    static TMap<FName, TArray<FConditionalVisibilityWidgetBinding>> ToolConditionalVisibilityWidgets;
     static TMap<FName, TArray<TSharedPtr<FStateTableWidgetBinding>>> ToolStateTableWidgets;
     static TMap<FName, TSet<FString>> ToolPendingClearedEditableCommits;
     static TSet<FName> TabsRefreshingBindings;
@@ -1034,6 +1042,18 @@ namespace PythonEditorUtility
             }
         }
 
+        if (TArray<FConditionalVisibilityWidgetBinding> *Widgets = ToolConditionalVisibilityWidgets.Find(TabId))
+        {
+            for (const FConditionalVisibilityWidgetBinding &Binding : *Widgets)
+            {
+                if (const TSharedPtr<SBorder> Widget = Binding.Widget.Pin())
+                {
+                    const bool bStateValue = JsonValueToBool(FindToolStateValue(TabId, Binding.StateKey), false);
+                    Widget->SetVisibility(bStateValue == Binding.bVisibleWhen ? EVisibility::Visible : EVisibility::Collapsed);
+                }
+            }
+        }
+
         if (TArray<TSharedPtr<FStateTableWidgetBinding>> *Widgets = ToolStateTableWidgets.Find(TabId))
         {
             for (const TSharedPtr<FStateTableWidgetBinding> &Binding : *Widgets)
@@ -1798,6 +1818,50 @@ namespace PythonEditorUtility
         if (WidgetType == TEXT("SBorder"))
         {
             return BuildBorder(Definition, TabId);
+        }
+        if (WidgetType == TEXT("SConditionalBox"))
+        {
+            const FString StateKey = GetDefinitionStateKey(Definition, FString());
+            bool bVisibleWhen = true;
+            Definition->TryGetBoolField(TEXT("VisibleWhen"), bVisibleWhen);
+
+            const TArray<TSharedPtr<FJsonValue>> *PaddingValues = nullptr;
+            FMargin Padding(0.0f);
+            if (Definition->TryGetArrayField(TEXT("Padding"), PaddingValues))
+            {
+                Padding = ParsePadding(PaddingValues);
+            }
+
+            TSharedPtr<FJsonObject> ChildContainer;
+            const TSharedPtr<FJsonObject> *ContentObject = nullptr;
+            if (Definition->TryGetObjectField(TEXT("Content"), ContentObject) && ContentObject != nullptr)
+            {
+                ChildContainer = *ContentObject;
+            }
+
+            if (!ChildContainer.IsValid())
+            {
+                ChildContainer = GetFirstChildObject(Definition, {TEXT("Padding"), TEXT("StateKey"), TEXT("VisibleWhen")});
+            }
+
+            const FString ChildType = ChildContainer.IsValid() ? GetFirstChildWidgetType(ChildContainer, {}) : FString();
+            const TSharedPtr<FJsonObject> ChildObject = ChildContainer.IsValid() ? GetFirstChildObject(ChildContainer, {}) : nullptr;
+
+            TSharedPtr<SBorder> ConditionalBox;
+            SAssignNew(ConditionalBox, SBorder)
+                .Padding(Padding)
+                    [ChildObject.IsValid() ? BuildWidgetFromDefinition(ChildType, ChildObject, TabId) : SNew(STextBlock).Text(FText::FromString(TEXT("Empty conditional box")))];
+
+            if (!StateKey.IsEmpty())
+            {
+                FConditionalVisibilityWidgetBinding Binding;
+                Binding.StateKey = StateKey;
+                Binding.bVisibleWhen = bVisibleWhen;
+                Binding.Widget = ConditionalBox;
+                ToolConditionalVisibilityWidgets.FindOrAdd(TabId).Add(Binding);
+            }
+
+            return ConditionalBox.ToSharedRef();
         }
         if (WidgetType == TEXT("STextBlock"))
         {

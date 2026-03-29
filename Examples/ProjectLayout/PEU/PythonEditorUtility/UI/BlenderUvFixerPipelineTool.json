@@ -4,25 +4,154 @@
   "StateFile": "BlenderUvFixerPipelineState.json",
   "InitPyCmd": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.refresh_status()",
   "Root": {
-    "SScrollBox": {
+    "SVerticalBox": {
       "Slots": [
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [10, 10, 10, 10],
+            "Content": {
+              "STextBlock": {
+                "Text": "Example Blender UV Fixer Pipeline tab shaped like the live project: source and destination paths, selectable unwrap modes for UV 0 and UV 1, and an optional Blender executable override."
+              }
+            }
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SHorizontalBox": {
+            "Slots": [
+              {
+                "AutoWidth": true,
+                "Padding": [0, 0, 6, 6],
+                "SButton": {
+                  "Text": "Refresh",
+                  "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.refresh_status()"
+                }
+              },
+              {
+                "AutoWidth": true,
+                "Padding": [0, 0, 6, 6],
+                "SButton": {
+                  "Text": "Run UV Fixer",
+                  "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.run_pipeline()"
+                }
+              },
+              {
+                "AutoWidth": true,
+                "Padding": [0, 0, 6, 6],
+                "SButton": {
+                  "Text": "Open Source Folder",
+                  "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.open_source_folder()"
+                }
+              },
+              {
+                "AutoWidth": true,
+                "SButton": {
+                  "Text": "Open Destination Folder",
+                  "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.open_destination_folder()"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "Padding": [0, 0, 0, 6],
+          "SHorizontalBox": {
+            "Slots": [
+              {
+                "AutoWidth": true,
+                "Padding": [0, 0, 8, 0],
+                "STextBlock": { "Text": "Source Folder" }
+              },
+              {
+                "FillWidth": 1.0,
+                "Padding": [0, 0, 6, 0],
+                "SEditableTextBox": {
+                  "Aka": "SourceFolder",
+                  "StateKey": "source_folder",
+                  "Text": "",
+                  "OnTextCommitted": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_paths(%Widget:SourceFolder%, %Widget:DestinationFolder%, %Widget:BlenderExecutable%)"
+                }
+              },
+              {
+                "AutoWidth": true,
+                "SButton": {
+                  "Text": "Browse",
+                  "OnClick": "PEU:BrowseFolder:SourceFolder"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "Padding": [0, 0, 0, 6],
+          "SHorizontalBox": {
+            "Slots": [
+              {
+                "AutoWidth": true,
+                "Padding": [0, 0, 8, 0],
+                "STextBlock": { "Text": "Destination Folder" }
+              },
+              {
+                "FillWidth": 1.0,
+                "Padding": [0, 0, 6, 0],
+                "SEditableTextBox": {
+                  "Aka": "DestinationFolder",
+                  "StateKey": "destination_folder",
+                  "Text": "",
+                  "OnTextCommitted": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_paths(%Widget:SourceFolder%, %Widget:DestinationFolder%, %Widget:BlenderExecutable%)"
+                }
+              },
+              {
+                "AutoWidth": true,
+                "SButton": {
+                  "Text": "Browse",
+                  "OnClick": "PEU:BrowseFolder:DestinationFolder"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "Padding": [0, 0, 0, 6],
+          "SHorizontalBox": {
+            "Slots": [
+              {
+                "AutoWidth": true,
+                "Padding": [0, 0, 8, 0],
+                "STextBlock": { "Text": "Blender Executable" }
+              },
+              {
+                "FillWidth": 1.0,
+                "Padding": [0, 0, 6, 0],
+                "SEditableTextBox": {
+                  "Aka": "BlenderExecutable",
+                  "StateKey": "blender_executable",
+                  "Text": "",
+                  "OnTextCommitted": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_paths(%Widget:SourceFolder%, %Widget:DestinationFolder%, %Widget:BlenderExecutable%)"
+                }
+              },
+              {
+                "AutoWidth": true,
+                "SButton": {
+                  "Text": "Browse",
+                  "OnClick": "PEU:BrowseFile:BlenderExecutable"
+                }
+              }
+            ]
+          }
+        },
         {
           "AutoHeight": true,
           "SVerticalBox": {
             "Slots": [
               {
                 "AutoHeight": true,
-                "SBorder": {
-                  "Padding": [10, 10, 10, 10],
-                  "Content": {
-                    "STextBlock": {
-                      "Text": "Example Blender UV Fixer Pipeline tab that mirrors the live contract: an external Blender workflow, configurable folders, and preset-aware batch settings."
-                    }
-                  }
-                }
-              },
-              {
-                "AutoHeight": true,
+                "Padding": [0, 0, 0, 6],
                 "SBorder": {
                   "Padding": [8, 6, 8, 6],
                   "Content": {
@@ -30,140 +159,8 @@
                       "Slots": [
                         {
                           "AutoHeight": true,
-                          "SHorizontalBox": {
-                            "Slots": [
-                              {
-                                "AutoWidth": true,
-                                "Padding": [0, 0, 6, 6],
-                                "SButton": {
-                                  "Text": "Refresh",
-                                  "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.refresh_status()"
-                                }
-                              },
-                              {
-                                "AutoWidth": true,
-                                "Padding": [0, 0, 6, 6],
-                                "SButton": {
-                                  "Text": "Run UV Fixer",
-                                  "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.run_pipeline()"
-                                }
-                              },
-                              {
-                                "AutoWidth": true,
-                                "Padding": [0, 0, 6, 6],
-                                "SButton": {
-                                  "Text": "Open Source Folder",
-                                  "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.open_source_folder()"
-                                }
-                              },
-                              {
-                                "AutoWidth": true,
-                                "Padding": [0, 0, 6, 6],
-                                "SButton": {
-                                  "Text": "Open Destination Folder",
-                                  "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.open_destination_folder()"
-                                }
-                              }
-                            ]
-                          }
-                        },
-                        {
-                          "AutoHeight": true,
-                          "Padding": [0, 0, 0, 6],
-                          "SHorizontalBox": {
-                            "Slots": [
-                              {
-                                "AutoWidth": true,
-                                "Padding": [0, 0, 8, 0],
-                                "STextBlock": {
-                                  "Text": "Source Folder"
-                                }
-                              },
-                              {
-                                "FillWidth": 1.0,
-                                "Padding": [0, 0, 6, 0],
-                                "SEditableTextBox": {
-                                  "Aka": "SourceFolder",
-                                  "StateKey": "source_folder",
-                                  "Text": "",
-                                  "HintText": "Filesystem folder with exported FBX files",
-                                  "OnTextCommitted": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_paths(%Widget:SourceFolder%, %Widget:DestinationFolder%, %Widget:BlenderExecutable%)"
-                                }
-                              },
-                              {
-                                "AutoWidth": true,
-                                "SButton": {
-                                  "Text": "Browse",
-                                  "OnClick": "PEU:BrowseFolder:SourceFolder"
-                                }
-                              }
-                            ]
-                          }
-                        },
-                        {
-                          "AutoHeight": true,
-                          "Padding": [0, 0, 0, 6],
-                          "SHorizontalBox": {
-                            "Slots": [
-                              {
-                                "AutoWidth": true,
-                                "Padding": [0, 0, 8, 0],
-                                "STextBlock": {
-                                  "Text": "Destination Folder"
-                                }
-                              },
-                              {
-                                "FillWidth": 1.0,
-                                "Padding": [0, 0, 6, 0],
-                                "SEditableTextBox": {
-                                  "Aka": "DestinationFolder",
-                                  "StateKey": "destination_folder",
-                                  "Text": "",
-                                  "HintText": "Filesystem folder for processed FBX files",
-                                  "OnTextCommitted": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_paths(%Widget:SourceFolder%, %Widget:DestinationFolder%, %Widget:BlenderExecutable%)"
-                                }
-                              },
-                              {
-                                "AutoWidth": true,
-                                "SButton": {
-                                  "Text": "Browse",
-                                  "OnClick": "PEU:BrowseFolder:DestinationFolder"
-                                }
-                              }
-                            ]
-                          }
-                        },
-                        {
-                          "AutoHeight": true,
-                          "Padding": [0, 0, 0, 6],
-                          "SHorizontalBox": {
-                            "Slots": [
-                              {
-                                "AutoWidth": true,
-                                "Padding": [0, 0, 8, 0],
-                                "STextBlock": {
-                                  "Text": "Blender Executable"
-                                }
-                              },
-                              {
-                                "FillWidth": 1.0,
-                                "Padding": [0, 0, 6, 0],
-                                "SEditableTextBox": {
-                                  "Aka": "BlenderExecutable",
-                                  "StateKey": "blender_executable",
-                                  "Text": "",
-                                  "HintText": "Optional Blender executable override",
-                                  "OnTextCommitted": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_paths(%Widget:SourceFolder%, %Widget:DestinationFolder%, %Widget:BlenderExecutable%)"
-                                }
-                              },
-                              {
-                                "AutoWidth": true,
-                                "SButton": {
-                                  "Text": "Browse",
-                                  "OnClick": "PEU:BrowseFile:BlenderExecutable"
-                                }
-                              }
-                            ]
+                          "STextBlock": {
+                            "Text": "UV Workflow"
                           }
                         },
                         {
@@ -174,203 +171,226 @@
                               {
                                 "Column_Row": [0, 0],
                                 "STextBlock": {
-                                  "Text": "Island Margin"
+                                  "Text": "UV 0 Unwrap Mode"
                                 }
                               },
                               {
                                 "Column_Row": [1, 0],
-                                "SEditableTextBox": {
-                                  "Aka": "IslandMargin",
-                                  "StateKey": "island_margin",
-                                  "Text": "0.05",
-                                  "HintText": "0.05",
-                                  "OnTextCommitted": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_processing_values(%Widget:IslandMargin%, %Widget:MergeDistance%, '')"
+                                "SComboBox": {
+                                  "Aka": "UV0UnwrapMode",
+                                  "StateKey": "uv0_unwrap_mode",
+                                  "Selected": "Keep Existing",
+                                  "Options": [
+                                    "Keep Existing",
+                                    "Lightmap Pack",
+                                    "Smart UV Project"
+                                  ],
+                                  "OnSelectionChanged": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_uv_workflow_options(%Widget:UV0UnwrapMode%, %Widget:UV1UnwrapMode%)"
                                 }
                               },
                               {
                                 "Column_Row": [2, 0],
                                 "STextBlock": {
-                                  "Text": "Merge Distance"
+                                  "Text": "UV 1 Unwrap Mode"
                                 }
                               },
                               {
                                 "Column_Row": [3, 0],
-                                "SEditableTextBox": {
-                                  "Aka": "MergeDistance",
-                                  "StateKey": "merge_distance",
-                                  "Text": "0.0001",
-                                  "HintText": "0.0001",
-                                  "OnTextCommitted": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_processing_values(%Widget:IslandMargin%, %Widget:MergeDistance%, '')"
-                                }
-                              },
-                              {
-                                "Column_Row": [0, 1],
-                                "SCheckBox": {
-                                  "Aka": "MergeByDistance",
-                                  "StateKey": "merge_by_distance",
-                                  "Text": "Merge By Distance",
-                                  "IsChecked": true,
-                                  "OnCheckStateChanged": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_toggle_options(%Checked%, %Widget:IgnoreCollision%, %Widget:ApplyScale%, %Widget:MarkActiveForExport%)"
-                                }
-                              },
-                              {
-                                "Column_Row": [1, 1],
-                                "SCheckBox": {
-                                  "Aka": "IgnoreCollision",
-                                  "StateKey": "ignore_collision",
-                                  "Text": "Ignore UCX Collision",
-                                  "IsChecked": true,
-                                  "OnCheckStateChanged": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_toggle_options(%Widget:MergeByDistance%, %Checked%, %Widget:ApplyScale%, %Widget:MarkActiveForExport%)"
-                                }
-                              },
-                              {
-                                "Column_Row": [2, 1],
-                                "SCheckBox": {
-                                  "Aka": "ApplyScale",
-                                  "StateKey": "apply_scale",
-                                  "Text": "Apply Scale",
-                                  "IsChecked": true,
-                                  "OnCheckStateChanged": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_toggle_options(%Widget:MergeByDistance%, %Widget:IgnoreCollision%, %Checked%, %Widget:MarkActiveForExport%)"
-                                }
-                              },
-                              {
-                                "Column_Row": [3, 1],
-                                "SCheckBox": {
-                                  "Aka": "MarkActiveForExport",
-                                  "StateKey": "mark_active_for_export",
-                                  "Text": "Mark UV Active",
-                                  "IsChecked": true,
-                                  "OnCheckStateChanged": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_toggle_options(%Widget:MergeByDistance%, %Widget:IgnoreCollision%, %Widget:ApplyScale%, %Checked%)"
-                                }
-                              },
-                              {
-                                "Column_Row": [0, 2],
-                                "STextBlock": {
-                                  "Text": "Selected Preset"
-                                }
-                              },
-                              {
-                                "Column_Row": [1, 2],
-                                "ColumnSpan": 3,
-                                "SEditableTextBox": {
-                                  "Aka": "SelectedPresetDisplay",
-                                  "StateKey": "export_preset_choice_display",
-                                  "Text": "Auto / None",
-                                  "IsReadOnly": true
-                                }
-                              },
-                              {
-                                "Column_Row": [0, 3],
-                                "STextBlock": {
-                                  "Text": "Preset Controls"
-                                }
-                              },
-                              {
-                                "Column_Row": [1, 3],
-                                "ColumnSpan": 3,
-                                "SUniformGridPanel": {
-                                  "SlotPadding": [6, 0, 6, 0],
-                                  "Slots": [
-                                    {
-                                      "Column_Row": [0, 0],
-                                      "SButton": {
-                                        "Text": "Prev",
-                                        "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.select_previous_export_preset()"
-                                      }
-                                    },
-                                    {
-                                      "Column_Row": [1, 0],
-                                      "SButton": {
-                                        "Text": "Next",
-                                        "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.select_next_export_preset()"
-                                      }
-                                    },
-                                    {
-                                      "Column_Row": [2, 0],
-                                      "SButton": {
-                                        "Text": "Auto",
-                                        "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_auto_export_preset()"
-                                      }
-                                    },
-                                    {
-                                      "Column_Row": [3, 0],
-                                      "SButton": {
-                                        "Text": "Refresh Presets",
-                                        "OnClick": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.refresh_export_presets()"
-                                      }
-                                    }
-                                  ]
-                                }
-                              },
-                              {
-                                "Column_Row": [0, 4],
-                                "ColumnSpan": 4,
-                                "STextBlock": {
-                                  "Text": "Preset list not loaded yet. Click Refresh Presets to query Blender operator presets.",
-                                  "StateKey": "preset_source_status"
+                                "SComboBox": {
+                                  "Aka": "UV1UnwrapMode",
+                                  "StateKey": "uv1_unwrap_mode",
+                                  "Selected": "Lightmap Pack",
+                                  "Options": [
+                                    "Lightmap Pack",
+                                    "Smart UV Project"
+                                  ],
+                                  "OnSelectionChanged": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_uv_workflow_options(%Widget:UV0UnwrapMode%, %Widget:UV1UnwrapMode%)"
                                 }
                               }
                             ]
-                          }
-                        },
-                        {
-                          "AutoHeight": true,
-                          "SBorder": {
-                            "Padding": [8, 6, 8, 6],
-                            "Content": {
-                              "SVerticalBox": {
-                                "Slots": [
-                                  {
-                                    "AutoHeight": true,
-                                    "STextBlock": {
-                                      "Text": "Idle",
-                                      "StateKey": "progress_text"
-                                    }
-                                  },
-                                  {
-                                    "AutoHeight": true,
-                                    "SProgressBar": {
-                                      "StateKey": "progress_percent",
-                                      "Percent": 0.0
-                                    }
-                                  }
-                                ]
-                              }
-                            }
-                          }
-                        },
-                        {
-                          "AutoHeight": true,
-                          "SBorder": {
-                            "Padding": [8, 8, 8, 8],
-                            "Content": {
-                              "SMultiLineEditableTextBox": {
-                                "StateKey": "status_text",
-                                "IsReadOnly": true,
-                                "Text": "Loading status..."
-                              }
-                            }
-                          }
-                        },
-                        {
-                          "FillHeight": 1.0,
-                          "SBorder": {
-                            "Padding": [8, 8, 8, 8],
-                            "Content": {
-                              "SMultiLineEditableTextBox": {
-                                "StateKey": "detail_text",
-                                "IsReadOnly": true,
-                                "Text": "Loading details..."
-                              }
-                            }
                           }
                         }
                       ]
                     }
                   }
                 }
+              },
+              {
+                "AutoHeight": true,
+                "Padding": [0, 0, 0, 6],
+                "SConditionalBox": {
+                  "StateKey": "show_smart_uv_settings",
+                  "VisibleWhen": true,
+                  "Content": {
+                    "SBorder": {
+                      "Padding": [8, 6, 8, 6],
+                      "Content": {
+                        "SVerticalBox": {
+                          "Slots": [
+                            {
+                              "AutoHeight": true,
+                              "STextBlock": {
+                                "Text": "Smart UV Project Settings"
+                              }
+                            },
+                            {
+                              "AutoHeight": true,
+                              "STextBlock": {
+                                "Text": "These Smart UV settings apply to any channel whose unwrap mode is Smart UV Project."
+                              }
+                            },
+                            {
+                              "AutoHeight": true,
+                              "SHorizontalBox": {
+                                "Slots": [
+                                  {
+                                    "AutoWidth": true,
+                                    "Padding": [0, 0, 8, 0],
+                                    "STextBlock": {
+                                      "Text": "Smart UV Margin"
+                                    }
+                                  },
+                                  {
+                                    "FillWidth": 1.0,
+                                    "SEditableTextBox": {
+                                      "Aka": "SmartUVMargin",
+                                      "StateKey": "smart_uv_margin",
+                                      "Text": "0.05",
+                                      "OnTextCommitted": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_smart_uv_settings(%Widget:SmartUVMargin%)"
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "AutoHeight": true,
+                "Padding": [0, 0, 0, 6],
+                "SConditionalBox": {
+                  "StateKey": "show_lightmap_pack_settings",
+                  "VisibleWhen": true,
+                  "Content": {
+                    "SBorder": {
+                      "Padding": [8, 6, 8, 6],
+                      "Content": {
+                        "SVerticalBox": {
+                          "Slots": [
+                            {
+                              "AutoHeight": true,
+                              "STextBlock": {
+                                "Text": "Lightmap Pack Settings"
+                              }
+                            },
+                            {
+                              "AutoHeight": true,
+                              "STextBlock": {
+                                "Text": "These Lightmap Pack settings apply to any channel whose unwrap mode is Lightmap Pack."
+                              }
+                            },
+                            {
+                              "AutoHeight": true,
+                              "SUniformGridPanel": {
+                                "SlotPadding": [6, 6, 6, 6],
+                                "Slots": [
+                                  {
+                                    "Column_Row": [0, 0],
+                                    "STextBlock": {
+                                      "Text": "Lightmap Pack Margin"
+                                    }
+                                  },
+                                  {
+                                    "Column_Row": [1, 0],
+                                    "SEditableTextBox": {
+                                      "Aka": "LightmapMargin",
+                                      "StateKey": "lightmap_margin",
+                                      "Text": "0.05",
+                                      "OnTextCommitted": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_lightmap_pack_settings(%Widget:LightmapMargin%, %Widget:LightmapPackQuality%)"
+                                    }
+                                  },
+                                  {
+                                    "Column_Row": [2, 0],
+                                    "STextBlock": {
+                                      "Text": "Lightmap Pack Quality"
+                                    }
+                                  },
+                                  {
+                                    "Column_Row": [3, 0],
+                                    "SEditableTextBox": {
+                                      "Aka": "LightmapPackQuality",
+                                      "StateKey": "lightmap_pack_quality",
+                                      "Text": "12",
+                                      "OnTextCommitted": "import PythonEditorUtility.BlenderUvFixerPipelineTool as tool; tool.set_lightmap_pack_settings(%Widget:LightmapMargin%, %Widget:LightmapPackQuality%)"
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
               }
             ]
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [8, 6, 8, 6],
+            "Content": {
+              "SVerticalBox": {
+                "Slots": [
+                  {
+                    "AutoHeight": true,
+                    "STextBlock": {
+                      "Text": "Idle",
+                      "StateKey": "progress_text"
+                    }
+                  },
+                  {
+                    "AutoHeight": true,
+                    "SProgressBar": {
+                      "StateKey": "progress_percent",
+                      "Percent": 0.0
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "AutoHeight": true,
+          "SBorder": {
+            "Padding": [8, 8, 8, 8],
+            "Content": {
+              "SMultiLineEditableTextBox": {
+                "StateKey": "status_text",
+                "IsReadOnly": true,
+                "Text": "Loading status..."
+              }
+            }
+          }
+        },
+        {
+          "FillHeight": 1.0,
+          "SBorder": {
+            "Padding": [8, 8, 8, 8],
+            "Content": {
+              "SMultiLineEditableTextBox": {
+                "StateKey": "detail_text",
+                "IsReadOnly": true,
+                "Text": "Loading details..."
+              }
+            }
           }
         }
       ]
